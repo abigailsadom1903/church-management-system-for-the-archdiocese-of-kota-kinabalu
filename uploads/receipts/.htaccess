@@ -1,0 +1,2 @@
+# Payment receipts are private. They are only ever served by receipt.php after a permission check.
+Require all denied

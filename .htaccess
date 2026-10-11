@@ -1,0 +1,4 @@
+# Keep secrets out of reach of the browser.
+<FilesMatch "^\.env.*$">
+    Require all denied
+</FilesMatch>
