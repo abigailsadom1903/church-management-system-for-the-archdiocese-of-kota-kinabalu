@@ -76,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         $stmt = $pdo->prepare('SELECT files FROM catechesis_enrolments WHERE program_id = ?');
         $stmt->execute([$programId]);
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $json) foreach ((json_decode((string)$json, true) ?: []) as $file) sx_delete_doc($file);
+        foreach (cat_lessons($pdo, $programId, true) as $l) cat_lesson_delete_file($l['file']);   // and the lesson handouts
         $pdo->prepare('DELETE FROM catechesis_programs WHERE program_id = ?')->execute([$programId]);
         cat_delete_photo($program['photo'] ?? null);
         $_SESSION['catechesis_flash'] = $program['title'] . ' was deleted.';
@@ -228,6 +229,8 @@ if ($program) {
     $enrolments = $stmt->fetchAll();
     $total = (int)$program['total_sessions'];
     $attRows = cat_attendance_rows($pdo, array_column($enrolments, 'enrolment_id'));   // the dated present / absent marks
+    $lessons = cat_lessons($pdo, $programId);                                           // published lesson materials
+    $lessonsDone = cat_lessons_done($pdo, array_column($enrolments, 'enrolment_id'));
 
     // Export List: a spreadsheet of the enrolments (both admins)
     if (!empty($_GET['export'])) {
@@ -268,6 +271,7 @@ if ($program) {
             </header>
             <div class="cat-ov-tools">
                 <?php report_tools('catechesis-manage.php?program=' . $programId . '&export=1', 'Print the enrolment list'); ?>
+                <a class="cat-tool" href="catechesis-lessons.php?program=<?= $programId ?>"><?= cat_icon('book', 15) ?> Lesson Materials (<?= count($lessons) ?>)</a>
                 <?php if ($canEdit): ?><a class="cat-tool" href="catechesis-manage.php?program=<?= $programId ?>&amp;attend=1#attend"><?= cat_icon('check', 15) ?> Take Attendance</a> <a class="cat-tool" href="catechesis-manage.php?program=<?= $programId ?>&amp;broadcast=1#broadcast"><?= cat_icon('mail', 15) ?> Broadcast</a><?php endif; ?>
             </div>
         </div>
@@ -397,6 +401,7 @@ if ($program) {
                         <h3><?= e($r['user_name']) ?> <span class="cat-status <?= $stClass ?>"><?= e($stLabel) ?></span></h3>
                         <p><?= cat_icon('mail', 13) ?> <?= e($r['user_email']) ?></p>
                         <p><?= cat_icon('calendar', 13) ?> Joined <?= e(date('M d, Y', strtotime($r['joined_at'] ?: $r['created_at']))) ?></p>
+                        <?php if ($lessons): ?><p><?= cat_icon('book', 13) ?> <?= count(array_intersect_key($lessonsDone[$eid] ?? [], array_flip(array_column($lessons, 'lesson_id')))) ?> of <?= count($lessons) ?> lessons done</p><?php endif; ?>
                         <?php $links = []; foreach (cat_config()['docs'] as $key => $doc) if (!empty($files[$key]) && sx_doc_path($files[$key])) $links[] = '<a href="catechesis-file.php?id=' . $eid . '&amp;doc=' . e($key) . '" target="_blank" rel="noopener">' . e($doc[0]) . '</a>'; ?>
                         <?php if ($links): ?><p class="cat-enrol-docs">Documents: <?= implode(' &middot; ', $links) ?></p><?php endif; ?>
                     </div>
@@ -618,7 +623,10 @@ include __DIR__ . '/includes/header.php';
                             <?php if ($p['location']): ?><li><?= cat_icon('pin', 15) ?> <span><?= e($p['location']) ?></span></li><?php endif; ?>
                             <li><?= cat_icon('users', 15) ?> <span><?= (int)$p['enrolled'] ?> enrolled</span></li>
                         </ul>
-                        <a class="cat-btn" href="catechesis-manage.php?program=<?= (int)$p['program_id'] ?>">View Enrolments</a>
+                        <div class="cat-card-btns">
+                            <a class="cat-btn" href="catechesis-manage.php?program=<?= (int)$p['program_id'] ?>">View Enrolments</a>
+                            <a class="cat-btn is-alt" href="catechesis-lessons.php?program=<?= (int)$p['program_id'] ?>"><?= cat_icon('book', 15) ?> Lessons</a>
+                        </div>
                     </div>
                 </article>
             <?php endforeach; ?>

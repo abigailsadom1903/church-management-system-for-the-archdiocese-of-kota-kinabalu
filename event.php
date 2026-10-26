@@ -48,6 +48,9 @@ if (($_SESSION['role'] ?? '') === 'user' && !empty($_SESSION['user_id'])) {
 }
 $backUrl = 'events.php?church=' . (int)$ev['church_id'] . '&month=' . substr($date, 0, 7);
 $left = $ev['capacity'] !== null ? max(0, (int)$ev['capacity'] - (int)$ev['people']) : null;
+// Countdown to the start of the day being looked at (kept ticking by the script at the bottom).
+[$startTs, $endTs] = event_window($ev, $date);
+$secs = max(0, $startTs - time());
 function fc(array $errors, string $key): string { return isset($errors[$key]) ? 'pfield has-error' : 'pfield'; }
 
 $pageTitle = $ev['title'];
@@ -71,6 +74,17 @@ include __DIR__ . '/includes/header.php';
                 <li><?= ev_icon('church', 17) ?> <span><a href="church-information.php?church=<?= (int)$ev['church_id'] ?>"><?= e($ev['church_name']) ?></a> &middot; <?= e($ev['church_location']) ?></span></li>
                 <?php if ($ev['repeat_weekly']): ?><li><?= ev_icon('repeat', 17) ?> <span>Every <?= e(date('l', strtotime($ev['event_date']))) ?><?= $ev['repeat_until'] ? ' until ' . e(date('j F Y', strtotime($ev['repeat_until']))) : '' ?></span></li><?php endif; ?>
             </ul>
+            <?php if (time() < $endTs): ?>
+                <div class="ev-countdown<?= $secs > 0 ? '' : ' is-live' ?>" data-start="<?= $startTs ?>" data-end="<?= $endTs ?>" data-now="<?= time() ?>" role="timer" aria-live="off">
+                    <p class="ev-cd-label"><?= $secs > 0 ? 'Starts in' : 'Happening now' ?></p>
+                    <div class="ev-cd-units"<?= $secs > 0 ? '' : ' hidden' ?>>
+                        <div><b data-u="d"><?= intdiv($secs, 86400) ?></b><span>Days</span></div>
+                        <div><b data-u="h"><?= sprintf('%02d', intdiv($secs % 86400, 3600)) ?></b><span>Hours</span></div>
+                        <div><b data-u="m"><?= sprintf('%02d', intdiv($secs % 3600, 60)) ?></b><span>Minutes</span></div>
+                        <div><b data-u="s"><?= sprintf('%02d', $secs % 60) ?></b><span>Seconds</span></div>
+                    </div>
+                </div>
+            <?php endif; ?>
             <?php if ($ev['description']): ?><div class="event-desc"><?= nl2br(e($ev['description'])) ?></div><?php endif; ?>
 
             <?php if ($canManage): ?>
@@ -100,4 +114,25 @@ include __DIR__ . '/includes/header.php';
         </section>
     <?php endif; ?>
 </main>
+<script>
+// Event countdown. Times come from the server, so the visitor's own clock/time zone doesn't matter.
+(function () {
+    var box = document.querySelector('.ev-countdown');
+    if (!box) return;
+    var start = +box.dataset.start, end = +box.dataset.end, skew = +box.dataset.now - Date.now() / 1000;
+    var label = box.querySelector('.ev-cd-label'), units = box.querySelector('.ev-cd-units');
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    function tick() {
+        var now = Date.now() / 1000 + skew, s = Math.max(0, Math.floor(start - now));
+        if (now >= end) { label.textContent = 'This event has ended'; units.hidden = true; box.classList.add('is-over'); return clearInterval(timer); }
+        if (s === 0) { label.textContent = 'Happening now'; units.hidden = true; box.classList.add('is-live'); return; }
+        box.querySelector('[data-u=d]').textContent = Math.floor(s / 86400);
+        box.querySelector('[data-u=h]').textContent = pad(Math.floor(s % 86400 / 3600));
+        box.querySelector('[data-u=m]').textContent = pad(Math.floor(s % 3600 / 60));
+        box.querySelector('[data-u=s]').textContent = pad(s % 60);
+    }
+    var timer = setInterval(tick, 1000);
+    tick();
+})();
+</script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

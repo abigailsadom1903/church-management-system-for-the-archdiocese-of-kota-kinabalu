@@ -110,6 +110,136 @@ function cat_attendance_list(array $rows, int $undated, ?callable $removeForm = 
     return $out . '</ul>';
 }
 
+// ---- Lesson materials ---------------------------------------------------------------------------------
+// The Church Admin adds lessons to a program (catechesis_lessons): text, a video link and a handout. Students whose
+// enrolment is active or completed can open the published ones and mark each as done (catechesis_lesson_progress).
+// Handouts are private (uploads/catechesis_lessons/ is blocked) and only served by catechesis-lesson-file.php.
+
+const CAT_LESSON_DIR = __DIR__ . '/../uploads/catechesis_lessons';
+const CAT_LESSON_MAX_MB = 20;
+// extension => [label, content types the file may really have (checked with finfo)]
+const CAT_LESSON_TYPES = [
+    'pdf'  => ['PDF', ['application/pdf']],
+    'docx' => ['Word', ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip', 'application/octet-stream']],
+    'pptx' => ['PowerPoint', ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/zip', 'application/octet-stream']],
+    'jpg'  => ['Image', ['image/jpeg']],
+    'png'  => ['Image', ['image/png']],
+    'mp3'  => ['Audio', ['audio/mpeg', 'audio/mp3', 'application/octet-stream']],
+];
+
+/** The lessons of a program in order (only the published ones unless $all). Empty if the table is not created yet. */
+function cat_lessons(PDO $pdo, int $programId, bool $all = false): array
+{
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM catechesis_lessons WHERE program_id = ?' . ($all ? '' : ' AND is_published = 1') . ' ORDER BY position, lesson_id');
+        $stmt->execute([$programId]);
+        return $stmt->fetchAll();
+    } catch (PDOException $ex) {
+        return [];   // database/catechesis_lessons.sql not run yet
+    }
+}
+
+/** Lessons each enrolment has marked done: [enrolment_id => [lesson_id => completed_at]] */
+function cat_lessons_done(PDO $pdo, array $enrolmentIds): array
+{
+    $ids = array_values(array_unique(array_map('intval', $enrolmentIds)));
+    if (!$ids) return [];
+    try {
+        $stmt = $pdo->prepare('SELECT enrolment_id, lesson_id, completed_at FROM catechesis_lesson_progress WHERE enrolment_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $stmt->execute($ids);
+    } catch (PDOException $ex) {
+        return [];
+    }
+    $out = [];
+    foreach ($stmt as $r) $out[(int)$r['enrolment_id']][(int)$r['lesson_id']] = $r['completed_at'];
+    return $out;
+}
+
+/** Numbers the lessons of a program 1, 2, 3 ... in their current order (after a delete or a move). */
+function cat_lessons_renumber(PDO $pdo, int $programId): void
+{
+    $stmt = $pdo->prepare('SELECT lesson_id FROM catechesis_lessons WHERE program_id = ? ORDER BY position, lesson_id');
+    $stmt->execute([$programId]);
+    $upd = $pdo->prepare('UPDATE catechesis_lessons SET position = ?, updated_at = updated_at WHERE lesson_id = ?');
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $i => $lid) $upd->execute([$i + 1, $lid]);
+}
+
+/** Full path of a stored handout, or null if the name is not one we generated or the file is gone. */
+function cat_lesson_path(?string $file): ?string
+{
+    if (!$file || !preg_match('/^[a-f0-9]{24}\.(' . implode('|', array_keys(CAT_LESSON_TYPES)) . ')$/', $file)) return null;
+    $path = CAT_LESSON_DIR . '/' . $file;
+    return is_file($path) ? $path : null;
+}
+
+function cat_lesson_delete_file(?string $file): void
+{
+    if ($path = cat_lesson_path($file)) @unlink($path);
+}
+
+/**
+ * Checks an uploaded handout ($_FILES entry). Returns [extension, null] when it is fine, [null, error] when not,
+ * or [null, null] when no file was chosen.
+ */
+function cat_lesson_check_upload(?array $up): array
+{
+    if (!$up || $up['error'] === UPLOAD_ERR_NO_FILE) return [null, null];
+    if ($up['error'] === UPLOAD_ERR_INI_SIZE || $up['error'] === UPLOAD_ERR_FORM_SIZE || ($up['error'] === UPLOAD_ERR_OK && $up['size'] > CAT_LESSON_MAX_MB * 1024 * 1024)) {
+        return [null, 'The file must be ' . CAT_LESSON_MAX_MB . ' MB or smaller.'];
+    }
+    if ($up['error'] !== UPLOAD_ERR_OK) return [null, 'The file could not be uploaded. Please try again.'];
+    $ext = strtolower(pathinfo((string)$up['name'], PATHINFO_EXTENSION));
+    if ($ext === 'jpeg') $ext = 'jpg';
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($up['tmp_name']);
+    if (!isset(CAT_LESSON_TYPES[$ext]) || !in_array($mime, CAT_LESSON_TYPES[$ext][1], true)) {
+        return [null, 'Please choose a PDF, Word (.docx), PowerPoint (.pptx), JPG, PNG or MP3 file.'];
+    }
+    return [$ext, null];
+}
+
+/** Moves a checked upload into the private folder; returns the stored file name, or null. */
+function cat_lesson_store_upload(array $up, string $ext): ?string
+{
+    if (!is_dir(CAT_LESSON_DIR)) mkdir(CAT_LESSON_DIR, 0755, true);
+    $file = bin2hex(random_bytes(12)) . '.' . $ext;
+    return move_uploaded_file($up['tmp_name'], CAT_LESSON_DIR . '/' . $file) ? $file : null;
+}
+
+/** The embeddable player address of a YouTube or Vimeo link, or null for any other link. */
+function cat_video_embed(?string $url): ?string
+{
+    if (!$url) return null;
+    if (preg_match('~^https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/)|youtu\.be/)([\w-]{11})~i', $url, $m)) {
+        return 'https://www.youtube-nocookie.com/embed/' . $m[1];
+    }
+    if (preg_match('~^https?://(?:www\.)?vimeo\.com/(\d+)~i', $url, $m)) return 'https://player.vimeo.com/video/' . $m[1];
+    return null;
+}
+
+/** The lesson text as HTML: escaped, blank lines start a paragraph, web addresses become links. */
+function cat_lesson_body(?string $text): string
+{
+    $text = trim(str_replace("\r\n", "\n", (string)$text));
+    if ($text === '') return '';
+    $out = '';
+    foreach (preg_split("/\n\s*\n/", $text) as $para) {
+        $html = htmlspecialchars($para, ENT_QUOTES, 'UTF-8');
+        $html = preg_replace('~https?://[^\s<]+[^\s<.,;:!?)\]\'"]~i', '<a href="$0" target="_blank" rel="noopener nofollow">$0</a>', $html);
+        $out .= '<p>' . nl2br($html) . '</p>';
+    }
+    return $out;
+}
+
+/** "PDF · 1.2 MB" for a stored handout. */
+function cat_lesson_file_label(array $lesson): string
+{
+    $path = cat_lesson_path($lesson['file'] ?? null);
+    if (!$path) return '';
+    $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    $size = filesize($path);
+    return CAT_LESSON_TYPES[$ext][0] . ' · ' . ($size >= 1048576 ? round($size / 1048576, 1) . ' MB' : max(1, (int)round($size / 1024)) . ' KB');
+}
+
 /** [label, css class] for an enrolment status. */
 function cat_status(string $s): array
 {
@@ -197,6 +327,13 @@ function cat_icon(string $name, int $size = 16): string
         'arrow'    => '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
         'users'    => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
         'check'    => '<path d="M20 6 9 17l-5-5"/>',
+        'book'     => '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
+        'play'     => '<circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4Z"/>',
+        'file'     => '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+        'up'       => '<path d="m18 15-6-6-6 6"/>',
+        'down'     => '<path d="m6 9 6 6 6-6"/>',
+        'eye'      => '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+        'back'     => '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
     ];
     return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . ($p[$name] ?? '') . '</svg>';
 }

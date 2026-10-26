@@ -1,7 +1,12 @@
 <?php
 // Helpers for the Forgot Password flow (forgot-password.php / reset-password.php).
+// The email carries a 6-digit code (no link, so it works whatever address the site runs on); the person types it
+// on reset-password.php together with their new password. Each account using the email address gets its own code.
 
-const RESET_TOKEN_TTL_MINUTES = 60;
+require_once __DIR__ . '/mailer.php';
+
+const RESET_CODE_MINUTES = 15;
+const RESET_CODE_TRIES = 5;
 const RESET_REQUEST_COOLDOWN_SECONDS = 60;
 
 /** Returns an error message if $password breaks the site's password rules, else null. */
@@ -18,27 +23,32 @@ function find_accounts_by_email(PDO $pdo, string $email): array
 {
     $accounts = [];
 
-    $stmt = $pdo->prepare('SELECT admin_id, admin_name FROM admin WHERE admin_email = ?');
+    $stmt = $pdo->prepare('SELECT admin_id, admin_name, admin_role FROM admin WHERE admin_email = ?');
     $stmt->execute([$email]);
     foreach ($stmt as $row) {
-        $accounts[] = ['type' => 'admin', 'id' => (int)$row['admin_id'], 'name' => $row['admin_name']];
+        $accounts[] = ['type' => 'admin', 'id' => (int)$row['admin_id'], 'name' => $row['admin_name'], 'role' => $row['admin_role']];
     }
 
     $stmt = $pdo->prepare('SELECT user_id, user_name FROM user WHERE user_email = ?');
     $stmt->execute([$email]);
     foreach ($stmt as $row) {
-        $accounts[] = ['type' => 'user', 'id' => (int)$row['user_id'], 'name' => $row['user_name']];
+        $accounts[] = ['type' => 'user', 'id' => (int)$row['user_id'], 'name' => $row['user_name'], 'role' => 'user'];
     }
 
     return $accounts;
 }
 
+/** Only this hash is stored, so a database leak does not expose live codes. The account is part of it, so codes never clash. */
+function reset_code_hash(string $type, int $id, string $code): string
+{
+    return hash('sha256', $type . ':' . $id . ':' . $code);
+}
+
 /**
- * Creates a single-use reset token for an account and returns the raw token,
- * or null if a token was already issued within the cooldown window.
- * Only the SHA-256 hash is stored, so a database leak does not expose live links.
+ * Creates a new reset code for an account (replacing any earlier one) and returns it,
+ * or null if a code was already issued within the cooldown window.
  */
-function create_reset_token(PDO $pdo, string $type, int $id): ?string
+function create_reset_code(PDO $pdo, string $type, int $id): ?string
 {
     $stmt = $pdo->prepare(
         'SELECT 1 FROM password_resets
@@ -50,74 +60,55 @@ function create_reset_token(PDO $pdo, string $type, int $id): ?string
         return null;
     }
 
-    // Only the newest link should work.
+    // Only the newest code should work.
     $pdo->prepare('DELETE FROM password_resets WHERE account_type = ? AND account_id = ?')->execute([$type, $id]);
 
-    $token = bin2hex(random_bytes(32));
+    $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
     $pdo->prepare(
         'INSERT INTO password_resets (account_type, account_id, token_hash, expires_at)
-         VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ' . RESET_TOKEN_TTL_MINUTES . ' MINUTE))'
-    )->execute([$type, $id, hash('sha256', $token)]);
+         VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ' . RESET_CODE_MINUTES . ' MINUTE))'
+    )->execute([$type, $id, reset_code_hash($type, $id, $code)]);
 
-    return $token;
+    return $code;
 }
 
-/** Looks up a still-valid reset row for a raw token, or null. */
-function find_valid_reset(PDO $pdo, string $token): ?array
+/** Emails a reset code. $account is a row from find_accounts_by_email(); its role is named, in case one address has two accounts. */
+function send_reset_code_email(string $email, array $account, string $code): bool
 {
-    if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
-        return null;
-    }
-    $stmt = $pdo->prepare('SELECT * FROM password_resets WHERE token_hash = ? AND expires_at > NOW()');
-    $stmt->execute([hash('sha256', $token)]);
-    return $stmt->fetch() ?: null;
-}
+    $kind = ['super_admin' => 'Super Admin', 'church_admin' => 'Church Admin'][$account['role']] ?? 'parishioner';
+    $minutes = RESET_CODE_MINUTES;
+    $subject = $code . ' is your password reset code - Archdiocese of Kota Kinabalu';
+    $intro = "We received a request to reset the password of your {$kind} account. To choose a new password, enter this code on the reset page:";
+    $after = "The code works for {$minutes} minutes and can be used once. If it runs out, you can ask for a new one on the same page.";
+    $footer = 'If you did not ask to reset your password, you can ignore this email. Your password will stay the same.';
 
-/** Absolute URL of the reset page. Set APP_URL in config/db.php on a real server. */
-function reset_link(string $token): string
-{
-    if (defined('APP_URL')) {
-        $base = rtrim(APP_URL, '/');
-    } else {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $base = $scheme . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
-    }
-    return $base . '/reset-password.php?token=' . $token;
+    $text = "Hello {$account['name']},\n\n{$intro}\n\n    {$code}\n\n{$after}\n\n"
+          . "Never share this code. The parish office will never ask you for it.\n\n"
+          . "{$footer}\n\nArchdiocese of Kota Kinabalu\n";
+    $html = code_email_html('Hello, ' . $account['name'], $intro, 'Your password reset code', $code, $after, $footer);
+
+    return send_plain_email($email, $subject, $text, [], $html);
 }
 
 /**
- * Emails the reset link. On localhost (no mail server in XAMPP) the link is
- * written to logs/reset-links.log instead, which is blocked from web access.
+ * The reset row whose code was typed, for any account using this email address, or null.
+ * A wrong code counts as a try against every live code of the address; after RESET_CODE_TRIES they stop working.
  */
-function send_reset_email(string $email, string $name, string $link): void
+function find_reset_by_code(PDO $pdo, string $email, string $code): ?array
 {
-    $subject = 'Reset your password - Archdiocese of Kota Kinabalu';
-    $body = "Hello {$name},\r\n\r\n"
-          . "We received a request to reset your password. Use the link below within "
-          . RESET_TOKEN_TTL_MINUTES . " minutes:\r\n\r\n{$link}\r\n\r\n"
-          . "If you did not request this, you can ignore this email and your password will stay the same.\r\n";
-
-    require_once __DIR__ . '/mailer.php';
-    if (smtp_ready()) {   // an SMTP account is set up in config/mail.php: really send it
-        smtp_send($email, $subject, $body);
-        return;
+    $rows = [];
+    foreach (find_accounts_by_email($pdo, $email) as $a) {
+        $stmt = $pdo->prepare('SELECT * FROM password_resets WHERE account_type = ? AND account_id = ? AND expires_at > NOW() AND attempts < ?');
+        $stmt->execute([$a['type'], $a['id'], RESET_CODE_TRIES]);
+        if ($row = $stmt->fetch()) $rows[] = $row;
     }
-
-    $host = $_SERVER['SERVER_NAME'] ?? '';
-    if (in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
-        $dir = __DIR__ . '/../logs';
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+    if (preg_match('/^\d{6}$/', $code)) {
+        foreach ($rows as $row) {
+            if (hash_equals($row['token_hash'], reset_code_hash($row['account_type'], (int)$row['account_id'], $code))) return $row;
         }
-        file_put_contents(
-            $dir . '/reset-links.log',
-            date('Y-m-d H:i:s') . "  {$email}  {$link}\n",
-            FILE_APPEND | LOCK_EX
-        );
-        return;
     }
-
-    // Strip line breaks from anything user-influenced that goes into headers.
-    $headers = 'From: no-reply@archkk.org' . "\r\n" . 'Content-Type: text/plain; charset=UTF-8';
-    @mail(str_replace(["\r", "\n"], '', $email), $subject, $body, $headers);
+    foreach ($rows as $row) {
+        $pdo->prepare('UPDATE password_resets SET attempts = attempts + 1 WHERE reset_id = ?')->execute([(int)$row['reset_id']]);
+    }
+    return null;
 }

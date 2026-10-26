@@ -150,7 +150,8 @@ const PC_SLOT_FIELD = [
 /**
  * The form of one service, in the same shape as sx_config() plus:
  *   steps  number the section headings 1, 2, 3...
- * and per field: 'boxes' (radio options drawn as boxes), 'ph' (placeholder), 'nolabel' (the section heading is the label).
+ * and per field: 'boxes' (radio options drawn as boxes), 'ph' (placeholder), 'nolabel' (the section heading is the label),
+ * 'side' (the field fills the right column beside the section's other fields).
  */
 function pc_config(string $service): ?array
 {
@@ -226,8 +227,9 @@ function pc_config(string $service): ?array
         case 'house_blessing':
             return ['title' => 'House Blessing', 'steps' => false, 'intro' => 'Invite a priest to bless your home. Our office will confirm the date and time with you.', 'sections' => [
                 ['title' => null, 'fields' => [
+                    $f('owner_name', "House Owner's Full Name"),
                     $f('address', 'House Address', 'text', true, ['max' => 255]),
-                    $f('preferred_at', 'Preferred Date/Time', 'datetime', true, ['future' => true, 'pick' => true, 'hours' => ANOINTING_HOURS, 'days' => ANOINTING_DAYS_AHEAD]),
+                    $f('preferred_at', 'Preferred Date/Time', 'datetime', true, ['side' => true, 'future' => true, 'pick' => true, 'hours' => ANOINTING_HOURS, 'days' => ANOINTING_DAYS_AHEAD]),
                     $f('contact_phone', 'Contact Number', 'tel', true),
                     $f('notes', 'Anything else the priest should know?', 'textarea', false, ['max' => 300]),
                 ]],

@@ -220,6 +220,7 @@ $renderRegRow = function (array $ev) use ($q): void {
                 <?php if ($ev['location']): ?><span><?= ev_icon('pin', 14) ?> <?= e($ev['location']) ?></span><?php endif; ?>
                 <span><?= ev_icon('clock', 14) ?> <?= e(event_time_text($ev)) ?></span>
             </p>
+            <?= countdown_badge($ev, $ev['shown_date']) ?>
         </div>
         <div class="mg-counts">
             <span class="mg-count"><b><?= (int)$ev['regs'] ?></b><small>Registered</small></span>
@@ -258,6 +259,7 @@ $renderOtherRow = function (array $ev): void { ?>
                 <span><?= ev_icon('church', 14) ?> <?= e($ev['church_name']) ?></span>
                 <?php if ($ev['repeat_weekly']): ?><span><?= ev_icon('repeat', 14) ?> Every <?= e(date('l', strtotime($ev['event_date']))) ?></span><?php endif; ?>
             </p>
+            <?= countdown_badge($ev, $ev['shown_date']) ?>
         </div>
         <?php if ($ev['can_manage']): ?>
             <form method="post" action="<?= cal_url(['view' => 'manage']) ?>" class="ev-actions">
@@ -422,6 +424,7 @@ include __DIR__ . '/includes/header.php';
                     <div class="up-item <?= event_type_class($ev['event_type']) ?>">
                         <a class="up-title" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $gDate ?>"><?= e($ev['title']) ?></a>
                         <span class="up-meta"><?= $ev['is_all_day'] ? 'All Day' : e(fmt_time($ev['start_time'])) ?><?= $ev['location'] ? ' · ' . e($ev['location']) : '' ?></span>
+                        <?= countdown_badge($ev, $gDate) ?>
                         <?php if ($churchId === 0): ?><span class="up-meta up-church"><?= e($ev['church_name']) ?></span><?php endif; ?>
                         <?php if ($reg): ?><a class="up-reg" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $gDate ?>#register">Register &rarr;</a><?php endif; ?>
                     </div>
@@ -489,4 +492,5 @@ document.querySelectorAll('.rg-toggle').forEach(function (btn) {
     });
 });
 </script>
+<?= countdown_script() ?>
 <?php include __DIR__ . '/includes/footer.php'; ?>

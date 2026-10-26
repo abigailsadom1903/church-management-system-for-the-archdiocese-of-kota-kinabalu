@@ -6,13 +6,14 @@ function ferr(array $errors, string $key): string { return isset($errors[$key]) 
 
 /**
  * One form field. Field options: full (span both columns), boxes (radio options drawn as boxes), ph (placeholder),
- * nolabel (the section heading is the label, so the label is only for screen readers), pick (a calendar that greys out taken days).
+ * nolabel (the section heading is the label, so the label is only for screen readers), pick (a calendar that greys out taken days),
+ * side (fills the right column beside the other fields; the grid needs class has-side and --side-rows).
  */
 function sx_render_field(array $fd, array $f, array $errors, array $taken = []): void
 {
     $k = $fd['k'];
     $v = $f[$k] ?? '';
-    $cls = fc($errors, $k, !empty($fd['full']) ? 'is-full' : '');
+    $cls = fc($errors, $k, !empty($fd['full']) ? 'is-full' : (!empty($fd['side']) ? 'is-side' : ''));
     $labelCls = !empty($fd['nolabel']) ? ' class="sr-only"' : '';
     $ph = !empty($fd['ph']) ? ' placeholder="' . e($fd['ph']) . '"' : '';
     echo '<div class="' . $cls . '">';

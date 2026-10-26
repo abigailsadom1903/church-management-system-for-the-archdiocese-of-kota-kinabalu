@@ -45,8 +45,13 @@ $footSignedIn = !empty($_SESSION['user_id']);
 </footer>
 
 <div class="cfm-overlay" id="cfm-overlay" hidden>
-    <div class="cfm-box" role="alertdialog" aria-modal="true" aria-labelledby="cfm-msg">
-        <span class="cfm-ico" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg></span>
+    <div class="cfm-box is-danger" id="cfm-box" role="alertdialog" aria-modal="true" aria-labelledby="cfm-title" aria-describedby="cfm-msg">
+        <span class="cfm-ico" aria-hidden="true">
+            <svg class="for-danger" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>
+            <svg class="for-approve" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            <svg class="for-reject" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </span>
+        <h2 class="cfm-title" id="cfm-title">Are you sure?</h2>
         <p class="cfm-msg" id="cfm-msg"></p>
         <div class="cfm-actions">
             <button type="button" class="cfm-cancel" id="cfm-cancel">Cancel</button>
@@ -58,16 +63,25 @@ $footSignedIn = !empty($_SESSION['user_id']);
 // One enhanced confirm dialog for every "This cannot be undone" action site-wide, instead of the plain
 // browser confirm(). Works the same way for every page: put data-confirm="..." on a submit button, or
 // data-confirm-form="..." on a <form>, exactly as before — nothing else needs to change.
+// Optional on the same element: data-confirm-tone="approve|reject" (default: the red warning),
+// data-confirm-title="Approve application?" and data-confirm-ok="Approve" (the confirm button's text).
 (function () {
     var overlay = document.getElementById('cfm-overlay');
     if (!overlay) return;
+    var box = document.getElementById('cfm-box');
+    var titleEl = document.getElementById('cfm-title');
     var msgEl = document.getElementById('cfm-msg');
     var okBtn = document.getElementById('cfm-ok');
     var cancelBtn = document.getElementById('cfm-cancel');
     var pending = null;
     var lastFocus = null;
 
-    function open(message, run) {
+    function open(message, run, el) {
+        var d = (el && el.dataset) || {};
+        var tone = ['approve', 'reject'].indexOf(d.confirmTone) >= 0 ? d.confirmTone : 'danger';
+        box.className = 'cfm-box is-' + tone;
+        titleEl.textContent = d.confirmTitle || 'Are you sure?';
+        okBtn.textContent = d.confirmOk || 'Yes, Continue';
         msgEl.textContent = message;
         pending = run;
         overlay.hidden = false;
@@ -89,13 +103,13 @@ $footSignedIn = !empty($_SESSION['user_id']);
     document.querySelectorAll('[data-confirm]').forEach(function (btn) {
         btn.addEventListener('click', function (ev) {
             ev.preventDefault();
-            open(btn.dataset.confirm, function () { if (btn.form) btn.form.requestSubmit(btn); });
+            open(btn.dataset.confirm, function () { if (btn.form) btn.form.requestSubmit(btn); }, btn);
         });
     });
     document.querySelectorAll('[data-confirm-form]').forEach(function (f) {
         f.addEventListener('submit', function (ev) {
             ev.preventDefault();
-            open(f.dataset.confirmForm, function () { f.submit(); });
+            open(f.dataset.confirmForm, function () { f.submit(); }, f);
         });
     });
 })();

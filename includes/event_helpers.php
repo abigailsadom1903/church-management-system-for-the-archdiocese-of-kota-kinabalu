@@ -57,6 +57,69 @@ function event_next_date(array $e, string $today): ?string
     return event_occurrences($e, $today, date('Y-m-d', strtotime($today . ' +8 days')))[0] ?? null;
 }
 
+/** [start, end] timestamps of an event on $date. All-day (or no start time) runs the whole day; no end time = 1 hour. */
+function event_window(array $e, string $date): array
+{
+    if (!empty($e['is_all_day']) || !$e['start_time']) {
+        return [strtotime($date . ' 00:00:00'), strtotime($date . ' 23:59:59')];
+    }
+    $start = strtotime($date . ' ' . $e['start_time']);
+    $end = $e['end_time'] ? strtotime($date . ' ' . $e['end_time']) : $start + 3600;
+    return [$start, max($end, $start)];
+}
+
+/** Short countdown, e.g. "in 3 days", "in 5h 20m", "in 12 min", "Happening now". Same wording as countdown_script(). */
+function countdown_short(int $start, int $end, ?int $now = null): string
+{
+    $now = $now ?? time();
+    if ($now >= $end) return 'Ended';
+    $s = $start - $now;
+    if ($s <= 0) return 'Happening now';
+    if ($s >= 172800) return 'in ' . intdiv($s, 86400) . ' days';
+    if ($s >= 86400) return 'in 1 day ' . intdiv($s % 86400, 3600) . 'h';
+    if ($s >= 3600) return 'in ' . intdiv($s, 3600) . 'h ' . intdiv($s % 3600, 60) . 'm';
+    return 'in ' . max(1, intdiv($s, 60)) . ' min';
+}
+
+/** Small "in 3 days" / "Happening now" badge for an event on $date; nothing once it has ended. Kept ticking by countdown_script(). */
+function countdown_badge(array $e, string $date): string
+{
+    [$start, $end] = event_window($e, $date);
+    if (time() >= $end) return '';
+    return '<span class="up-cd' . (time() >= $start ? ' is-live' : '') . '" data-start="' . $start . '" data-end="' . $end . '">'
+         . ev_icon('clock', 12) . ' <span>' . countdown_short($start, $end) . '</span></span>';
+}
+
+/** The script that keeps every countdown_badge() on the page current (same wording as countdown_short()). */
+function countdown_script(): string
+{
+    return '<script>
+(function () {
+    var skew = ' . time() . ' - Date.now() / 1000;
+    function text(start, end, now) {
+        if (now >= end) return "Ended";
+        var s = Math.floor(start - now);
+        if (s <= 0) return "Happening now";
+        if (s >= 172800) return "in " + Math.floor(s / 86400) + " days";
+        if (s >= 86400) return "in 1 day " + Math.floor(s % 86400 / 3600) + "h";
+        if (s >= 3600) return "in " + Math.floor(s / 3600) + "h " + Math.floor(s % 3600 / 60) + "m";
+        return "in " + Math.max(1, Math.floor(s / 60)) + " min";
+    }
+    function tick() {
+        var now = Date.now() / 1000 + skew;
+        document.querySelectorAll(".up-cd").forEach(function (el) {
+            var t = text(+el.dataset.start, +el.dataset.end, now);
+            el.lastElementChild.textContent = t;
+            el.classList.toggle("is-live", t === "Happening now");
+            el.classList.toggle("is-over", t === "Ended");
+        });
+    }
+    tick();
+    setInterval(tick, 30000);
+})();
+</script>';
+}
+
 /** Sorts [['date' =>, 'event' =>], ...] by date, then by start time (all-day first). */
 function sort_occurrences(array &$occ): void
 {

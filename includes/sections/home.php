@@ -27,6 +27,15 @@ $homeNews = catholic_sabah_news(6);   // latest posts of catholicsabah.com (kept
             ? 'Welcome, ' . $homeE($homeFirstName) . '!'
             : '<a href="register.php">Register</a> or <a href="login.php">login</a> to get started' ?></h1>
 
+        <?php
+        // Parishioners get a small "My account" panel on the left of the news; admins and visitors get the news alone.
+        require_once __DIR__ . '/user_overview.php';
+        ob_start();
+        render_user_overview($pdo);
+        $homeAccount = ob_get_clean();
+        ?>
+        <?php if ($homeAccount !== ''): ?><div class="home-split"><?= $homeAccount ?><?php endif; ?>
+
         <section class="news-show" id="news" aria-roledescription="carousel" aria-labelledby="news-title">
             <div class="news-head">
                 <h2 id="news-title">Catholic Sabah News</h2>
@@ -89,6 +98,7 @@ $homeNews = catholic_sabah_news(6);   // latest posts of catholicsabah.com (kept
             play();
         })();
         </script>
+        <?php if ($homeAccount !== ''): ?></div><?php endif; ?>
 
         <p class="home-lead">The Archdiocese at a glance</p>
 

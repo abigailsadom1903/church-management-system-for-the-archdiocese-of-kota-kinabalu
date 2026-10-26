@@ -51,6 +51,10 @@ foreach ($mine as $pid => $en) {
     $d = cat_next_lesson($p);
     if (!$next || $d < $next['date']) $next = ['date' => $d, 'p' => $p];
 }
+// the published lesson materials of those programs, and which ones I have done
+$lessonsOf = [];
+foreach ($active as ['p' => $p]) $lessonsOf[(int)$p['program_id']] = cat_lessons($pdo, (int)$p['program_id']);
+$lessonsDone = cat_lessons_done($pdo, array_column($mine, 'enrolment_id'));
 
 $pageTitle = 'Catechesis Programs';
 $activeNav = 'services';
@@ -110,7 +114,10 @@ include __DIR__ . '/includes/header.php';
                                 <summary>My attendance <span class="cat-att-sum"><b class="is-present"><?= $nPresent + (int)($en['attendance_undated'] ?? 0) ?> present</b> &middot; <b class="is-absent"><?= $nAbsent ?> absent</b></span></summary>
                                 <?= cat_attendance_list($marks, (int)($en['attendance_undated'] ?? 0)) ?>
                             </details>
-                            <a class="cat-continue" href="#program-<?= (int)$p['program_id'] ?>">Continue Learning <?= cat_icon('arrow', 14) ?></a>
+                            <?php if ($nLessons = count($lessonsOf[(int)$p['program_id']] ?? [])): $nDone = count(array_intersect_key($lessonsDone[(int)$en['enrolment_id']] ?? [], array_flip(array_column($lessonsOf[(int)$p['program_id']], 'lesson_id')))); ?>
+                                <p class="cat-learn-count"><?= cat_icon('book', 14) ?> <?= $nDone ?> of <?= $nLessons ?> lesson materials done</p>
+                            <?php endif; ?>
+                            <a class="cat-continue" href="catechesis-learn.php?program=<?= (int)$p['program_id'] ?>">Continue Learning <?= cat_icon('arrow', 14) ?></a>
                         </article>
                     <?php endforeach; ?>
                 </div>
@@ -154,13 +161,14 @@ include __DIR__ . '/includes/header.php';
                                 <?php if ($p['location']): ?><li><?= cat_icon('pin', 15) ?> <span><?= e($p['location']) ?></span></li><?php endif; ?>
                             </ul>
                             <?php if (!$isUser): ?>
-                                <?php if ($role !== 'user'): ?><a class="cat-btn" href="catechesis-manage.php?program=<?= (int)$p['program_id'] ?>">View Enrolments</a><?php endif; ?>
+                                <?php if ($role !== 'user'): ?><a class="cat-btn" href="catechesis-manage.php?program=<?= (int)$p['program_id'] ?>">View Enrolments</a><a class="cat-btn is-alt" href="catechesis-lessons.php?program=<?= (int)$p['program_id'] ?>"><?= cat_icon('book', 15) ?> Lesson Materials</a><?php endif; ?>
                             <?php elseif (!$en): ?>
                                 <a class="cat-btn" href="catechesis-enrol.php?program=<?= (int)$p['program_id'] ?>">Register Now</a>
                             <?php elseif ($en['status'] === 'draft'): ?>
                                 <a class="cat-btn" href="catechesis-enrol.php?program=<?= (int)$p['program_id'] ?>">Continue Registration</a>
                             <?php else: [$stLabel] = cat_status($en['status']); ?>
                                 <span class="cat-btn is-done"><?= cat_icon('check', 15) ?> <?= $en['status'] === 'active' ? 'Registered' : e($stLabel) ?></span>
+                                <?php if (in_array($en['status'], ['active', 'completed'], true)): ?><a class="cat-btn is-alt" href="catechesis-learn.php?program=<?= (int)$p['program_id'] ?>"><?= cat_icon('book', 15) ?> Open Lessons</a><?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </article>

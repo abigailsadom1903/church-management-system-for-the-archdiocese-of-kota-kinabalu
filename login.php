@@ -92,7 +92,7 @@ include __DIR__ . '/includes/header.php';
         <p class="subtitle">Enter your credentials to access the portal.</p>
 
         <?php if (!empty($_GET['registered']) && !$error): ?>
-            <div class="alert success" role="status">Account created. You can now sign in. We have emailed you a link to verify your email address.</div>
+            <div class="alert success" role="status">Account created. You can now sign in. Verify your email any time from your profile with the code we emailed you.</div>
         <?php endif; ?>
         <?php if (!empty($_GET['signedout']) && !$error): ?>
             <div class="alert success" role="status">You have been signed out.</div>

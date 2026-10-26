@@ -56,13 +56,14 @@ $history = is_array($in['history'] ?? null) ? $in['history'] : [];
 
 // A follow-up such as "and on weekdays?", or a question in another language, means nothing to the lookup
 // as typed. Put it into one plain English question first and look that up, so the answer still comes from
-// the database and not from the AI's imagination. (Without the AI: retry with the previous question added.)
+// the database and not from the AI's imagination. (Without the AI, or when it does not answer in time:
+// retry with the previous question added.)
 $lookupMessage = $message;
 if (($reply['matched'] ?? true) === false) {
     $asked = array_values(array_filter($history, fn($t) => is_array($t) && ($t['who'] ?? '') === 'me' && trim((string)($t['text'] ?? '')) !== ''));
     $retry = assistant_ai_search_question($message, $history)
-        ?? ($asked && !gemini_ready() ? mb_substr(trim((string)end($asked)['text']), 0, 300) . ' ' . $message : null);
-    if ($retry !== null) {
+        ?? ($asked ? mb_substr(trim((string)end($asked)['text']), 0, 300) . ' ' . $message : null);
+    if ($retry !== null && $retry !== '') {
         $again = assistant_reply($pdo, $retry, $churchId, $who);
         if (($again['matched'] ?? true) !== false) {
             $reply = $again;

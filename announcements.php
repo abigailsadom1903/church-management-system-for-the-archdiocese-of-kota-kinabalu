@@ -5,6 +5,7 @@ require __DIR__ . '/includes/login_gate.php';
 require_signed_in('Announcement & Bulletin');   // visitors get "please login or register" instead of this page
 require __DIR__ . '/includes/church_helpers.php';
 require __DIR__ . '/includes/announcement_mail.php';
+require __DIR__ . '/includes/bulletin_helpers.php';
 
 function e(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -158,7 +159,7 @@ if ($c) {
         $page  = min($page, $pages);
 
         $stmt = $pdo->prepare(
-            "SELECT bulletin_id, title, topic, language, bulletin_date, file_name, cover_image FROM bulletins WHERE $whereSql
+            "SELECT bulletin_id, title, topic, language, bulletin_date, file_name, cover_image, content IS NOT NULL AS generated FROM bulletins WHERE $whereSql
               ORDER BY bulletin_date DESC, bulletin_id DESC LIMIT " . BULLETINS_PER_PAGE . ' OFFSET ' . (($page - 1) * BULLETINS_PER_PAGE)
         );
         $stmt->execute($params);
@@ -314,7 +315,7 @@ include __DIR__ . '/includes/header.php';
                 <div class="ann-headrow">
                     <h2 class="ann-heading">Recent Digital Bulletins</h2>
                     <?php if ($canManage): ?>
-                        <a class="btn-new" href="bulletin-form.php?church=<?= $selectedId ?>"><?= ann_icon('plus', 16) ?> New Bulletin</a>
+                        <span class="bul-new-btns"><a class="btn-new is-main" href="bulletin-builder.php?church=<?= $selectedId ?>"><?= ann_icon('plus', 16) ?> Build a Bulletin</a><a class="btn-new" href="bulletin-form.php?church=<?= $selectedId ?>"><?= ann_icon('plus', 16) ?> Upload PDF</a></span>
                     <?php endif; ?>
                 </div>
                 <?php if ($q !== '' || $month !== '' || $lang !== ''): ?>
@@ -331,13 +332,17 @@ include __DIR__ . '/includes/header.php';
                 <?php else: ?>
                     <div class="bul-grid">
                         <?php foreach ($bulletins as $b):
-                            $file  = preg_match('/^[\w.-]+$/', $b['file_name']) && is_file(__DIR__ . '/uploads/bulletins/' . $b['file_name']) ? 'uploads/bulletins/' . $b['file_name'] : null;
+                            // made with the Bulletin Builder: its page, opening the "Save as PDF" window; otherwise the uploaded PDF file
+                            $file  = $b['generated'] ? 'bulletin-view.php?id=' . (int)$b['bulletin_id'] . '&print=1'
+                                   : ($b['file_name'] && preg_match('/^[\w.-]+$/', $b['file_name']) && is_file(__DIR__ . '/uploads/bulletins/' . $b['file_name']) ? 'uploads/bulletins/' . $b['file_name'] : null);
                             $cover = $b['cover_image'] && preg_match('/^[\w.-]+$/', $b['cover_image']) && is_file(__DIR__ . '/uploads/bulletins/' . $b['cover_image']) ? 'uploads/bulletins/' . $b['cover_image'] : null;
                         ?>
                             <article class="bul-card">
                                 <div class="bul-cover">
                                     <?php if ($cover): ?>
                                         <img src="<?= e($cover) ?>" alt="Cover of <?= e($b['title']) ?>" loading="lazy">
+                                    <?php elseif ($b['generated']): ?>
+                                        <?= bulletin_cover_html($b['title'], $b['topic'], $b['bulletin_date'], $b['language'], $c['church_name']) ?>
                                     <?php else: ?>
                                         <span class="bul-cover-fallback" aria-hidden="true">
                                             <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
@@ -351,7 +356,7 @@ include __DIR__ . '/includes/header.php';
                                             <form method="post" action="announcements.php" class="bul-actions">
                                                 <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
                                                 <input type="hidden" name="id" value="<?= (int)$b['bulletin_id'] ?>">
-                                                <a class="ico-btn sm" href="bulletin-form.php?id=<?= (int)$b['bulletin_id'] ?>" title="Edit" aria-label="Edit bulletin"><?= ann_icon('pencil', 13) ?></a>
+                                                <a class="ico-btn sm" href="<?= $b['generated'] ? 'bulletin-builder.php' : 'bulletin-form.php' ?>?id=<?= (int)$b['bulletin_id'] ?>" title="Edit" aria-label="Edit bulletin"><?= ann_icon('pencil', 13) ?></a>
                                                 <button type="submit" name="action" value="delete_bulletin" class="ico-btn sm danger" data-confirm="Delete this bulletin and its files? This cannot be undone." title="Delete" aria-label="Delete bulletin"><?= ann_icon('trash', 13) ?></button>
                                             </form>
                                         <?php endif; ?>
@@ -359,7 +364,7 @@ include __DIR__ . '/includes/header.php';
                                     <h3><?= e($b['title']) ?></h3>
                                     <span class="bul-lang"><?= e(BULLETIN_LANGUAGES[$b['language']] ?? $b['language']) ?> Bulletin</span>
                                     <?php if ($file): ?>
-                                        <a class="bul-download" href="<?= e($file) ?>" download>
+                                        <a class="bul-download" href="<?= e($file) ?>"<?= $b['generated'] ? ' title="Opens the bulletin; choose Save as PDF"' : ' download' ?>>
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
                                             Download
                                         </a>

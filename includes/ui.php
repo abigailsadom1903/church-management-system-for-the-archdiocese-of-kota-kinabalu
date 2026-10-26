@@ -111,3 +111,78 @@ function dash_stat(string $icon, int $number, string $label): void
     </div>
     <?php
 }
+
+/**
+ * The "Decision" panel at the foot of an application / request review page (Church Admin):
+ * a note for the parishioner, buttons for the in-between steps, and clear Reject / Approve buttons.
+ * Each button sends its own status, so there is no dropdown to set first. Rejecting needs a reason.
+ *
+ * $o: action, csrf, id, back, ref (e.g. "APP-00084"), status (current), badge [label, css class], note,
+ *     steps [status => label] (in-between steps), approve / reject [status, button label, status name],
+ *     who ("applicant"), kind ("application")
+ */
+function render_decision_panel(array $o): void
+{
+    $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+    [$okStatus, $okLabel, $okDone] = $o['approve'];
+    [$noStatus, $noLabel, $noDone] = $o['reject'];
+    $kind = $o['kind'] ?? 'application';
+    $cur = $o['status'];
+    $who = $o['who'] ?? 'applicant';
+    $check = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    $cross = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+    $arrow = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>';
+    ?>
+    <form method="post" action="<?= $h($o['action']) ?>" class="dp" id="decision">
+        <input type="hidden" name="csrf" value="<?= $h($o['csrf']) ?>">
+        <input type="hidden" name="id" value="<?= (int)$o['id'] ?>">
+        <div class="dp-head">
+            <h2>Decision</h2>
+            <span class="dp-current">Current status <span class="sx-badge <?= $h($o['badge'][1]) ?>"><?= $h($o['badge'][0]) ?></span></span>
+        </div>
+
+        <label class="dp-note">
+            <span>Note for the <?= $h($who) ?> <small>(emailed with the update; needed to <?= $h(strtolower($noLabel)) ?>)</small></span>
+            <textarea name="note" rows="2" maxlength="255" placeholder="e.g. Please re-upload a clearer copy of the birth certificate."><?= $h($o['note']) ?></textarea>
+            <span class="dp-hint" role="alert" hidden>Please write a reason for the <?= $h($who) ?> before you <?= $h(strtolower($noLabel)) ?>.</span>
+        </label>
+
+        <div class="dp-actions">
+            <?php if ($o['steps']): ?>
+                <div class="dp-steps" role="group" aria-label="Move to an in-between step">
+                    <span class="dp-steps-label">Move to</span>
+                    <?php foreach ($o['steps'] as $st => $label): ?>
+                        <button type="submit" name="status" value="<?= $h($st) ?>" class="dp-step<?= $st === $cur ? ' is-current' : '' ?>"<?= $st === $cur ? ' aria-current="step"' : '' ?>>
+                            <?= $h($label) ?><?= $st === $cur ? '' : ' ' . $arrow ?>
+                        </button>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            <div class="dp-final">
+                <button type="submit" name="status" value="<?= $h($noStatus) ?>" class="dp-btn is-reject<?= $cur === $noStatus ? ' is-current' : '' ?>" data-dp-reject
+                        data-confirm-tone="reject" data-confirm-ok="<?= $h($noLabel) ?>" data-confirm-title="<?= $h($noLabel . ' this ' . $kind . '?') ?>"
+                        data-confirm="<?= $h($o['ref'] . ' will be marked as ' . strtolower($noDone) . '. The ' . $who . ' will be emailed your note as the reason.') ?>"><?= $cross ?> <?= $h($cur === $noStatus ? $o['badge'][0] : $noLabel) ?></button>
+                <button type="submit" name="status" value="<?= $h($okStatus) ?>" class="dp-btn is-approve<?= $cur === $okStatus ? ' is-current' : '' ?>"
+                        data-confirm-tone="approve" data-confirm-ok="<?= $h($okLabel) ?>" data-confirm-title="<?= $h($okLabel . ' this ' . $kind . '?') ?>"
+                        data-confirm="<?= $h($o['ref'] . ' will be marked as ' . strtolower($okDone) . ' and the ' . $who . ' will be notified by email.') ?>"><?= $check ?> <?= $h($cur === $okStatus ? $o['badge'][0] : $okLabel) ?></button>
+            </div>
+        </div>
+        <a class="rv-back dp-back" href="<?= $h($o['back']) ?>">&larr; Back to the list</a>
+    </form>
+    <script>
+    // Rejecting needs a reason: stop before the confirm box opens if the note is empty.
+    (function () {
+        var f = document.getElementById('decision'), btn = f && f.querySelector('[data-dp-reject]');
+        if (!btn) return;
+        var note = f.querySelector('textarea[name=note]'), hint = f.querySelector('.dp-hint');
+        f.addEventListener('click', function (ev) {
+            if (ev.target.closest('[data-dp-reject]') && !note.value.trim()) {
+                ev.preventDefault(); ev.stopImmediatePropagation();
+                hint.hidden = false; note.classList.add('is-invalid'); note.focus();
+            }
+        }, true);
+        note.addEventListener('input', function () { if (note.value.trim()) { hint.hidden = true; note.classList.remove('is-invalid'); } });
+    })();
+    </script>
+    <?php
+}

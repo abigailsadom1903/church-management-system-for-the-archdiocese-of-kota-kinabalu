@@ -122,6 +122,8 @@ if ($id) {
             $error = 'Your session expired. Please try again.';
         } elseif (!in_array($new, $STATUSES, true)) {
             $error = 'Please choose a status.';
+        } elseif ($new === 'rejected' && $note === '') {
+            $error = 'Please give the applicant a reason before rejecting.';
         } else {
             $pdo->prepare('UPDATE sacrament_applications SET status = ?, admin_note = ?, reviewed_by = ?, reviewed_at = NOW() WHERE application_id = ?')
                 ->execute([$new, $note !== '' ? $note : null, (int)$_SESSION['user_id'], $id]);
@@ -190,54 +192,51 @@ if ($id) {
                 echo '</dl></section>';
             }
             ?>
-            <section class="rv-card">
-                <h2>Applicant</h2>
-                <dl>
-                    <dt>Name:</dt><dd><?= e($app['user_name']) ?></dd>
-                    <dt>Email:</dt><dd><a href="mailto:<?= e($app['user_email']) ?>"><?= e($app['user_email']) ?></a></dd>
-                    <dt>Phone:</dt><dd><?= e($app['user_phone']) ?: '&mdash;' ?></dd>
-                    <dt>Church:</dt><dd><?= e($app['church_name']) ?></dd>
-                    <dt>Submitted:</dt><dd><?= e(date('j F Y', strtotime($app['submitted_at'] ?: $app['created_at']))) ?></dd>
-                </dl>
-            </section>
-        </div>
-
-        <?php if ($cfg['docs']): ?>
-            <h2 class="rv-docs-title">Supporting Documents</h2>
-            <div class="rv-docs">
-                <?php foreach ($cfg['docs'] as $key => $doc):
-                    $has = !empty($files[$key]) && ($path = sx_doc_path($files[$key]));
-                    $ext = $has ? strtolower(pathinfo($path, PATHINFO_EXTENSION)) : '';
-                ?>
-                    <?php if ($has): ?>
-                        <a class="rv-doc" href="sacrament-file.php?id=<?= $id ?>&amp;doc=<?= e($key) ?>" target="_blank" rel="noopener" title="Open <?= e($doc[0]) ?>">
-                            <span class="rv-doc-ico <?= $ext === 'pdf' ? 'is-pdf' : 'is-img' ?>"><i><?= $ext === 'pdf' ? 'PDF' : 'IMG' ?></i></span>
-                            <small><?= e($doc[0]) ?></small>
-                        </a>
-                    <?php else: ?>
-                        <span class="rv-doc is-missing"><span class="rv-doc-ico"><i>&mdash;</i></span><small><?= e($doc[0]) ?> (not provided)</small></span>
-                    <?php endif; ?>
-                <?php endforeach; ?>
+            <div class="rv-pair"><?php /* the applicant and their documents side by side */ ?>
+                <section class="rv-card">
+                    <h2>Applicant</h2>
+                    <dl>
+                        <dt>Name:</dt><dd><?= e($app['user_name']) ?></dd>
+                        <dt>Email:</dt><dd><a href="mailto:<?= e($app['user_email']) ?>"><?= e($app['user_email']) ?></a></dd>
+                        <dt>Phone:</dt><dd><?= e($app['user_phone']) ?: '&mdash;' ?></dd>
+                        <dt>Church:</dt><dd><?= e($app['church_name']) ?></dd>
+                        <dt>Submitted:</dt><dd><?= e(date('j F Y', strtotime($app['submitted_at'] ?: $app['created_at']))) ?></dd>
+                    </dl>
+                </section>
+                <?php if ($cfg['docs']): ?>
+                    <section class="rv-card rv-docs-card">
+                        <h2>Supporting Documents</h2>
+                        <div class="rv-docs">
+                            <?php foreach ($cfg['docs'] as $key => $doc):
+                                $has = !empty($files[$key]) && ($path = sx_doc_path($files[$key]));
+                                $ext = $has ? strtolower(pathinfo($path, PATHINFO_EXTENSION)) : '';
+                            ?>
+                                <?php if ($has): ?>
+                                    <a class="rv-doc" href="sacrament-file.php?id=<?= $id ?>&amp;doc=<?= e($key) ?>" target="_blank" rel="noopener" title="Open <?= e($doc[0]) ?>">
+                                        <span class="rv-doc-ico <?= $ext === 'pdf' ? 'is-pdf' : 'is-img' ?>"><i><?= $ext === 'pdf' ? 'PDF' : 'IMG' ?></i></span>
+                                        <small><?= e($doc[0]) ?></small>
+                                    </a>
+                                <?php else: ?>
+                                    <span class="rv-doc is-missing"><span class="rv-doc-ico"><i>&mdash;</i></span><small><?= e($doc[0]) ?> (not provided)</small></span>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </section>
+                <?php endif; ?>
             </div>
-        <?php endif; ?>
+        </div>
 
         <?php if ($app['admin_note'] && $isSuper): ?><p class="st-note rv-note-plain"><b>Note from the church:</b> <?= e($app['admin_note']) ?></p><?php endif; ?>
 
         <?php if ($isSuper): ?>
             <div class="rv-foot"><a class="rv-back" href="sacrament-review.php">back</a><span class="sx-badge <?= $stClass ?>"><?= e($stLabel) ?></span></div>
         <?php else: ?>
-            <form method="post" action="sacrament-review.php?id=<?= $id ?>" class="rv-foot rv-decide">
-                <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
-                <input type="hidden" name="id" value="<?= $id ?>">
-                <a class="rv-back" href="sacrament-review.php">back</a>
-                <div class="rv-decide-fields">
-                    <input type="text" name="note" maxlength="255" placeholder="Note for the applicant (optional)" value="<?= e((string)$app['admin_note']) ?>" aria-label="Note for the applicant">
-                    <select name="status" aria-label="Status">
-                        <?php foreach ($STATUSES as $s): ?><option value="<?= $s ?>" <?= $s === $app['status'] ? 'selected' : '' ?>><?= e(sx_status($s)[0]) ?></option><?php endforeach; ?>
-                    </select>
-                    <button type="submit" class="reg-submit">Save</button>
-                </div>
-            </form>
+            <?php render_decision_panel([
+                'action' => 'sacrament-review.php?id=' . $id, 'csrf' => $_SESSION['csrf'], 'id' => $id, 'back' => 'sacrament-review.php',
+                'ref' => sx_ref($id), 'status' => $app['status'], 'badge' => [$stLabel, $stClass], 'note' => (string)$app['admin_note'],
+                'steps' => ['submitted' => 'Submitted', 'verifying' => 'Document Verification', 'review' => 'Under Review'],
+                'approve' => ['approved', 'Approve', 'Approved'], 'reject' => ['rejected', 'Reject', 'Rejected'], 'who' => 'applicant', 'kind' => 'application',
+            ]); ?>
         <?php endif; ?>
     </main>
     <?php

@@ -107,7 +107,9 @@ CREATE TABLE user (
     user_photo    VARCHAR(100) NULL,                 -- file name inside uploads/profile_photos/
     user_role     VARCHAR(50) DEFAULT 'user',
     user_verified TINYINT(1) DEFAULT 0,
-    verify_token_hash CHAR(64) NULL,               -- SHA-256 of the token in the verification link
+    verify_token_hash CHAR(64) NULL,               -- SHA-256 of the user id and the 6-digit code in the verification email
+    verify_expires  DATETIME NULL,                 -- the code stops working after this
+    verify_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,   -- wrong tries on the current code
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_user_admin  FOREIGN KEY (admin_id)  REFERENCES admin(admin_id) ON DELETE SET NULL,
@@ -172,8 +174,9 @@ CREATE TABLE IF NOT EXISTS password_resets (
     reset_id     INT AUTO_INCREMENT PRIMARY KEY,
     account_type ENUM('admin','user') NOT NULL,   -- which table account_id points into
     account_id   INT NOT NULL,
-    token_hash   CHAR(64) NOT NULL UNIQUE,        -- SHA-256 of the emailed token; the raw token is never stored
+    token_hash   CHAR(64) NOT NULL UNIQUE,        -- SHA-256 of the account and the emailed 6-digit code; the code is never stored
     expires_at   DATETIME NOT NULL,
+    attempts     TINYINT UNSIGNED NOT NULL DEFAULT 0,   -- wrong tries on this code
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_reset_account (account_type, account_id)
 );
@@ -332,8 +335,9 @@ CREATE TABLE IF NOT EXISTS bulletins (
     topic         VARCHAR(100) NULL,                            -- e.g. "4th Sunday of Easter"
     language      VARCHAR(5) NOT NULL DEFAULT 'en',               -- en, ms, zh or kzj (see BULLETIN_LANGUAGES)
     bulletin_date DATE NOT NULL,
-    file_name     VARCHAR(150) NOT NULL,
+    file_name     VARCHAR(150) NULL,                            -- uploaded PDF; NULL for a bulletin made with the Bulletin Builder
     cover_image   VARCHAR(150) NULL,                            -- image file name inside uploads/bulletins/
+    content       MEDIUMTEXT NULL,                              -- Bulletin Builder: snapshot of what the bulletin shows (JSON)
     created_by    INT NULL,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_bul_church_date (church_id, bulletin_date),
@@ -598,6 +602,34 @@ CREATE TABLE IF NOT EXISTS catechesis_attendance (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_enrolment_date (enrolment_id, session_date),   -- one mark per student per day
     CONSTRAINT fk_catatt_enrolment FOREIGN KEY (enrolment_id) REFERENCES catechesis_enrolments (enrolment_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Lesson materials of a program (see database/catechesis_lessons.sql), and which ones each student has done.
+CREATE TABLE IF NOT EXISTS catechesis_lessons (
+    lesson_id    INT AUTO_INCREMENT PRIMARY KEY,
+    program_id   INT NOT NULL,
+    position     SMALLINT UNSIGNED NOT NULL DEFAULT 0,  -- order in the program (1, 2, 3 ...)
+    title        VARCHAR(150) NOT NULL,
+    summary      VARCHAR(300) NULL,                     -- one line shown in the lesson list
+    body         MEDIUMTEXT NULL,                       -- the lesson text (plain text; blank lines start a new paragraph)
+    video_url    VARCHAR(300) NULL,                     -- YouTube / Vimeo (shown in the page) or any other link
+    file         VARCHAR(60) NULL,                      -- handout: file name inside uploads/catechesis_lessons/ (private)
+    file_name    VARCHAR(150) NULL,                     -- the handout's original name, for the download
+    is_published TINYINT(1) NOT NULL DEFAULT 1,         -- 0 = draft, only the admins see it
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_program (program_id, position),
+    CONSTRAINT fk_catles_program FOREIGN KEY (program_id) REFERENCES catechesis_programs (program_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS catechesis_lesson_progress (
+    enrolment_id INT NOT NULL,
+    lesson_id    INT NOT NULL,
+    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (enrolment_id, lesson_id),
+    KEY idx_lesson (lesson_id),
+    CONSTRAINT fk_catlp_enrolment FOREIGN KEY (enrolment_id) REFERENCES catechesis_enrolments (enrolment_id) ON DELETE CASCADE,
+    CONSTRAINT fk_catlp_lesson    FOREIGN KEY (lesson_id)    REFERENCES catechesis_lessons (lesson_id)         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- The three programs from the design for Sacred Heart Cathedral (edit or delete them from Catechesis Management).

@@ -1,4 +1,4 @@
-$('ai-out-title').value = data.title || $('title').value;<?php
+<?php
 session_start();
 require __DIR__ . '/config/db.php';
 require __DIR__ . '/includes/church_helpers.php';

@@ -21,7 +21,6 @@ $churches = $pdo->query(
 )->fetchAll();
 $byId = array_column($churches, null, 'church_info_id');
 
-$isLocal = in_array($_SERVER['SERVER_NAME'] ?? '', ['localhost', '127.0.0.1', '::1'], true);
 $flash = $_SESSION['donation_flash'] ?? null;
 unset($_SESSION['donation_flash']);
 $errors = [];
@@ -34,23 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     if (!hash_equals($_SESSION['csrf'], $_POST['csrf'] ?? '')) {
         $errors['form'] = 'Your session expired. Please try again.';
-
-    } elseif ($action === 'fill_samples') {
-        // Demo helper: only on this computer, only for churches that have nothing yet, always labelled SAMPLE.
-        if (!$isLocal) {
-            $errors['form'] = 'Sample details can only be added when running on localhost.';
-        } else {
-            $upd = $pdo->prepare('UPDATE church_info SET donation_bank_name = ?, donation_account_name = ?, donation_account_number = ? WHERE church_info_id = ?');
-            $n = 0;
-            foreach ($churches as $c) {
-                if ($c['donation_bank_name'] || $c['donation_account_name'] || $c['donation_account_number']) continue;   // never overwrite real details
-                $upd->execute(['Sample Bank Berhad', mb_substr($c['church_name'], 0, 88) . ' (SAMPLE)', '0000 0000 0000', (int)$c['church_info_id']]);
-                $n++;
-            }
-            $_SESSION['donation_flash'] = $n ? "Added clearly-marked SAMPLE bank details to $n churches. Replace them with the real accounts before going live." : 'Every church already has payment details.';
-            header('Location: donation-settings.php');
-            exit;
-        }
 
     } elseif ($action === 'save_all') {
         $clean = [];
@@ -150,17 +132,5 @@ include __DIR__ . '/includes/header.php';
             <button type="submit" class="btn-save">Save all</button>
         </div>
     </form>
-
-    <?php if ($isLocal): ?>
-        <form method="post" action="donation-settings.php" class="demo-box ds-demo">
-            <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
-            <input type="hidden" name="action" value="fill_samples">
-            <p class="demo-title">Demo helper <span>&middot; local testing only</span></p>
-            <p>Want to try the donation page for every church before you have the real accounts? This fills only the <em>empty</em> churches with
-               <strong>clearly-marked SAMPLE</strong> details (&ldquo;Sample Bank Berhad&rdquo;, account &ldquo;&hellip; (SAMPLE)&rdquo;, 0000 0000 0000). Real details are never overwritten.
-               Replace them before going live.</p>
-            <button type="submit" class="demo-btn">Fill empty churches with sample details</button>
-        </form>
-    <?php endif; ?>
 </main>
 <?php include __DIR__ . '/includes/footer.php'; ?>

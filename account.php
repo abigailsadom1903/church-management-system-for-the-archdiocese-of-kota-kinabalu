@@ -262,3 +262,4 @@ function acc_class(array $errors, string $key): string { return isset($errors[$k
 })();
 </script>
 <?php include __DIR__ . '/includes/footer.php'; ?>
+

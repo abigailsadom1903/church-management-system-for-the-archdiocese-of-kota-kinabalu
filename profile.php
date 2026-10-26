@@ -57,13 +57,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: profile.php');
         exit;
     } elseif (isset($_POST['resend_verification'])) {
-        // At most one verification email a minute.
+        // At most one verification email a minute; then type the code on verify-email.php.
         if (!$me['user_verified'] && time() - (int)($_SESSION['verify_sent_at'] ?? 0) >= 60) {
-            send_welcome_email($pdo, $userId, $me['user_email'], $me['user_name']);
+            send_verification_code($pdo, $userId, $me['user_email'], $me['user_name']);
             $_SESSION['verify_sent_at'] = time();
         }
-        $_SESSION['flash'] = 'We have sent a verification link to ' . $me['user_email'] . '.';
-        header('Location: profile.php');
+        header('Location: verify-email.php?sent=1');
         exit;
     } else {
         $old['name']    = trim($_POST['name'] ?? '');
@@ -134,7 +133,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (strcasecmp($old['email'], (string)$me['user_email']) !== 0) {
                 // A new address has to be verified again.
                 $pdo->prepare('UPDATE user SET user_verified = 0 WHERE user_id = ?')->execute([$userId]);
-                send_welcome_email($pdo, $userId, $old['email'], $old['name']);
+                send_verification_code($pdo, $userId, $old['email'], $old['name']);
+                $_SESSION['verify_sent_at'] = time();
             }
             // Moving home parish: carry this parishioner's still-open requests to the new church, so its admin
             // (not the old one) can see and continue them. Confession bookings stay put — they're tied to an
@@ -151,8 +151,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['user_photo'] = $newPhoto;
             }
             $_SESSION['user_name'] = $old['name'];
-            $_SESSION['flash'] = 'Profile updated.';
-            header('Location: profile.php');
+            $emailChanged = strcasecmp($old['email'], (string)$me['user_email']) !== 0;
+            if (!$emailChanged) $_SESSION['flash'] = 'Profile updated.';
+            header('Location: ' . ($emailChanged ? 'verify-email.php?sent=1' : 'profile.php'));   // a new address: type its code next
             exit;
         }
         if ($newPhoto) @unlink(__DIR__ . '/uploads/profile_photos/' . $newPhoto);   // don't keep a photo from a failed save
@@ -185,8 +186,8 @@ function pf_class(array $errors, string $key): string { return isset($errors[$ke
     <?php if (!$me['user_verified']): ?>
         <form method="post" action="profile.php" class="verify-note profile-alert" role="status">
             <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
-            <span><strong>Your email is not verified yet.</strong> Open the link we sent to <?= e($me['user_email']) ?>.</span>
-            <button type="submit" name="resend_verification" value="1">Send the link again</button>
+            <span><strong>Your email is not verified yet.</strong> <a href="verify-email.php">Enter the 6-digit code</a> we sent to <?= e($me['user_email']) ?>.</span>
+            <button type="submit" name="resend_verification" value="1">Send a new code</button>
         </form>
     <?php endif; ?>
 

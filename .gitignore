@@ -40,3 +40,6 @@ uploads/sacrament_docs/*
 !uploads/sacrament_docs/.htaccess
 logs/catholic-sabah-news.json
 .env
+uploads/catechesis_lessons/*
+!uploads/catechesis_lessons/.htaccess
+logs/ai-quota.json

@@ -2,7 +2,9 @@
 // The Intelligent Church Assistant's AI layer (assistant-api.php). The portal's own lookup
 // (assistant_engine.php) still finds the facts in the database; Gemini turns them into a natural reply,
 // follows the conversation, answers in the person's language and handles questions the lookup has no
-// answer for. If the AI is not set up or does not answer, the lookup's own reply is used as before.
+// answer for: questions of faith and general questions from its own knowledge (marked as general
+// information), but never a parish or portal detail the lookup did not give. If the AI is not set up or
+// does not answer, the lookup's own reply is used as before.
 require_once __DIR__ . '/gemini.php';
 
 const ASSISTANT_AI_SYSTEM = <<<'PROMPT'
@@ -11,12 +13,15 @@ You are the Intelligent Church Assistant inside the Church Management System of 
 At the end of these instructions is a <portal_lookup> block. It holds what the portal's own database search found for the person's latest message: the facts about their parish and the pages that apply. It is the only source you have for anything specific to a parish or to this portal: Mass and office times, addresses, phone numbers, priests' names, bank details, fees, dates, deadlines, requirements, what a page does, or how a process works here. People act on these details, so pass them on exactly as given and never add, change or guess one. If the lookup does not contain a detail someone asks for, say you do not have it and suggest they contact their parish office; do not fill the gap from general knowledge.
 
 When <portal_lookup> says no_match, the portal found nothing. Then:
-- If your own earlier replies in this conversation already state the answer word for word, you may repeat it. Otherwise treat any parish-specific detail (a time, day, place, name, number, fee, requirement) as unknown: say you do not have it, and suggest the Church Calendar or the parish office. A plausible-sounding Mass time that is not in the lookup is the worst possible answer, because someone will turn up for it.
-- If it is a general question about the Catholic faith or Church life (what a sacrament means, how to prepare for confession, what a feast day celebrates), answer briefly and faithfully from what the Church commonly teaches, and suggest speaking to a priest or catechist for anything personal or pastoral.
-- If it is a greeting or small talk, respond warmly in a sentence and offer what you can help with: Mass times, sacraments, prayer requests and Mass intentions, counselling and sick visits, events, catechesis, and donations.
-- If it has nothing to do with the Church or this portal, say kindly that you can only help with parish matters.
+- If the question needs a detail about a parish or this portal (a Mass or office time, day, place, priest's name, phone number, fee, deadline, requirement, or how something works on this portal): if your own earlier replies in this conversation already state it word for word, you may repeat it; otherwise say you do not have it, and suggest the Church Calendar or the parish office. Never take such a detail from general knowledge. A plausible-sounding Mass time that is not in the lookup is the worst possible answer, because someone will turn up for it.
+- If it is a question about the Catholic faith or Church life (what a sacrament means, a Bible passage, a saint, a prayer, a feast day or liturgical season, Church history or teaching, how to prepare for confession), answer helpfully and faithfully from what the Church teaches.
+- If it is any other general question (history, science, geography, language, maths, help with wording a message or letter, everyday advice), answer it helpfully and accurately from your general knowledge, as a knowledgeable and kind assistant would.
+- After an answer from general knowledge (not from the lookup), add one short closing line in the person's language saying it is general information rather than from the parish, and, where it fits, suggesting a priest or catechist for anything personal or pastoral. For health, legal or money matters, also suggest a qualified professional.
+- Your knowledge has a cut-off date and you cannot browse the internet: for news, recent events or anything that changes often, say your information may be out of date. Never invent facts, quotations, Bible references or sources; if you are not sure, say so.
+- Decline kindly anything harmful, hateful, sexual, or otherwise unsuitable for a church portal, and anything that asks for other people's personal information.
+- If it is a greeting or small talk, respond warmly in a sentence and offer what you can help with: Mass times, sacraments, prayer requests and Mass intentions, counselling and sick visits, events, catechesis, donations, and general questions.
 
-How to write: warm, respectful and plain, like a helpful person at the parish office. Reply in the language of the person's latest message (English, Bahasa Malaysia, Mandarin and so on), translating the lookup's facts but keeping names of churches, people, places and pages as written. Keep it short: a few sentences, or a short list when there are several times or steps. Lead with the answer. Use **double asterisks** for the few key facts (a time, a place, a page name); that is the only formatting the chat window shows, so do not use headings, tables, links or other Markdown. Buttons for the relevant pages are added under your reply automatically, so refer to them naturally ("use the button below") rather than writing addresses.
+How to write: warm, respectful and plain, like a helpful person at the parish office. Reply in the language of the person's latest message (English, Bahasa Malaysia, Mandarin and so on), translating the lookup's facts but keeping names of churches, people, places and pages as written. Keep it short: a few sentences, or a short list when there are several times or steps; a general question may take one or two short paragraphs (about 120 words at most) and the person can ask for more. Lead with the answer. Use **double asterisks** for the few key facts (a time, a place, a page name); that is the only formatting the chat window shows, so do not use italics, single asterisks, headings, tables, links or other Markdown. Buttons for the relevant pages are added under your reply automatically, so refer to them naturally ("use the button below") rather than writing addresses.
 
 Your reply goes straight into the chat window, so write only what the person should read: never repeat the lookup block or mention that a lookup exists.
 
@@ -50,17 +55,18 @@ function assistant_ai_turns(array $history): array
 
 /**
  * For a message the lookup did not understand (a follow-up like "and on weekdays?", or one in another
- * language): the same question as one plain English sentence the lookup can search with. Null when there
- * is nothing to look up (a greeting, small talk) or the AI is unavailable.
+ * language): the same question as one plain English sentence the lookup can search with. '' when there
+ * is nothing to look up (a greeting, small talk); null when the AI is not set up or did not answer.
  */
 function assistant_ai_search_question(string $message, array $history): ?string
 {
     if (!gemini_ready()) return null;
     $contents = assistant_ai_turns($history);
     $contents[] = ['role' => 'user', 'parts' => [['text' => $message]]];
-    $out = gemini_generate(ASSISTANT_AI_REWRITE, $contents, ['maxOutputTokens' => 80, 'temperature' => 0], 8, 1);
-    $q = trim((string)($out['text'] ?? ''), " \t\n\r\"'");
-    return $q === '' || stripos($q, 'NONE') === 0 ? null : mb_substr(strtok($q, "\n"), 0, 300);
+    $out = gemini_generate(ASSISTANT_AI_REWRITE, $contents, ['maxOutputTokens' => 80, 'temperature' => 0], 6, 2);
+    if (!isset($out['text'])) return null;
+    $q = trim($out['text'], " \t\n\r\"'");
+    return $q === '' || stripos($q, 'NONE') === 0 ? '' : mb_substr(strtok($q, "\n"), 0, 300);
 }
 
 /**
@@ -86,10 +92,13 @@ function assistant_ai_reply(string $message, array $engine, array $history, arra
     $contents = assistant_ai_turns($history);
     $contents[] = ['role' => 'user', 'parts' => [['text' => $message]]];
 
-    $out = gemini_generate($system, $contents, ['maxOutputTokens' => 900], 12, 2);
+    // Kept short: when Google is slow, the lookup's own reply a few seconds sooner beats a nicer one later.
+    $out = gemini_generate($system, $contents, ['maxOutputTokens' => 900], 10, 3);
     if (!isset($out['text'])) return null;
     // Belt and braces: if the model echoes the lookup block, it must not reach the chat window.
     $text = preg_replace(['#<portal_lookup>.*?</portal_lookup>#s', '#</?portal_lookup>#'], '', str_replace("\r\n", "\n", $out['text']));
+    // The chat window only shows **bold**: drop *italics* markers the model may still use, keeping the words.
+    $text = preg_replace('/(?<![*\w])\*(?=[^\s*])([^*\n]*?[^\s*])\*(?![*\w])/u', '$1', $text);
     $text = trim(preg_replace('/\n{3,}/', "\n\n", $text));
     return $text !== '' ? mb_substr($text, 0, 2500) : null;
 }

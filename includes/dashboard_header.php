@@ -12,7 +12,7 @@ function dash_nav_items(bool $super): array
 {
     $dash = $super ? 'superadmin/dashboard.php' : 'churchadmin/dashboard.php';
     $ann = ['announcements.php', 'announcement-form.php'];
-    $bul = ['bulletin-form.php'];
+    $bul = ['announcements.php?tab=bulletins', 'bulletin-form.php'];
     $events = ['events.php', 'event.php', 'event-form.php', 'event-participants.php'];
     $groups = [
         // A Church Admin manages these on their dashboard; the Super Admin on the Announcements page, where any church can be picked.
@@ -119,7 +119,12 @@ function dash_header(string $pageTitle, string $roleLabel, int $pending, string 
     $badges = ['Sacraments' => $sacraments, 'Applications' => $sacraments, 'Pastoral Care' => $pastoral, 'Requests' => $pastoral, 'Donations' => $pending, 'Manage donations' => $pending];
     $badge = fn(string $label) => !empty($badges[$label]) ? '<em class="dn-badge" title="' . (int)$badges[$label] . ' waiting for review">' . (int)$badges[$label] . '</em>' : '';
     $items = dash_nav_items($super);
-    $current = fn(array $scripts) => in_array($script, $scripts, true);
+    // A page with tabs can be two menu entries: 'announcements.php?tab=bulletins' is the Bulletins entry, not Announcements.
+    $tab = $_GET['tab'] ?? $_POST['tab'] ?? '';
+    $scriptTab = $script . (is_string($tab) && $tab !== '' ? '?tab=' . $tab : '');
+    $tabClaimed = false;
+    foreach ($items as $list) foreach ($list as [, , $children]) foreach ($children as [, , $cs]) if (in_array($scriptTab, $cs, true)) $tabClaimed = true;
+    $current = fn(array $scripts) => in_array($tabClaimed ? $scriptTab : $script, $scripts, true);
     $home = $base . ($super ? 'superadmin' : 'churchadmin') . '/dashboard.php';
     $signOutNext = $shell ? $script : basename(dirname($_SERVER['SCRIPT_NAME'])) . '/' . $script;
     ?>

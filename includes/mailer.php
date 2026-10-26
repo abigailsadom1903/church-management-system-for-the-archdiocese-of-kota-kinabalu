@@ -91,12 +91,39 @@ function site_base_url(): string
 }
 
 /**
+ * The designed (HTML) version of an email that carries a one-time code: the verification and the
+ * password-reset emails. Plain strings in, escaped here; $after and $footer may be several sentences.
+ */
+function code_email_html(string $heading, string $intro, string $codeLabel, string $code, string $after, string $footer): string
+{
+    $h = fn(string $s) => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+    return '<!doctype html><html><body style="margin:0;padding:0;background:#f3eff7;">'
+         . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3eff7;padding:32px 12px;"><tr><td align="center">'
+         . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e4dcee;font-family:Arial,Helvetica,sans-serif;">'
+         . '<tr><td style="background:#4a0d6e;padding:22px 28px;border-bottom:4px solid #d4a72c;">'
+         . '<div style="font:bold 18px Georgia,serif;color:#ffffff;">Archdiocese of Kota Kinabalu</div>'
+         . '<div style="font:12px Arial,sans-serif;color:#e6d6f3;margin-top:4px;">Church Management System</div></td></tr>'
+         . '<tr><td style="padding:30px 28px 8px;">'
+         . '<p style="margin:0 0 6px;font:bold 20px Georgia,serif;color:#1d1d24;">' . $h($heading) . '</p>'
+         . '<p style="margin:0 0 22px;font:15px/1.6 Arial,sans-serif;color:#4a4a55;">' . $h($intro) . '</p>'
+         . '<div style="margin:0 0 22px;padding:18px 10px;text-align:center;background:#f6f0fb;border:1px dashed #b89ad3;border-radius:12px;">'
+         . '<div style="font:bold 11px Arial,sans-serif;letter-spacing:2px;color:#6b3a93;text-transform:uppercase;margin-bottom:8px;">' . $h($codeLabel) . '</div>'
+         . '<div style="font:bold 36px \'Courier New\',monospace;letter-spacing:10px;color:#4a0d6e;">' . $h($code) . '</div></div>'
+         . '<p style="margin:0 0 12px;font:14px/1.6 Arial,sans-serif;color:#4a4a55;">' . $h($after) . '</p>'
+         . '<p style="margin:0 0 24px;padding:10px 14px;font:13px/1.5 Arial,sans-serif;color:#6b551a;background:#fdf6df;border-left:3px solid #d4a72c;border-radius:4px;">Never share this code. The parish office will never ask you for it.</p>'
+         . '</td></tr>'
+         . '<tr><td style="padding:16px 28px 22px;border-top:1px solid #eee8f3;font:12px/1.5 Arial,sans-serif;color:#8a8a99;">' . $h($footer) . '<br>United in Faith, Connected in Service</td></tr>'
+         . '</table></td></tr></table></body></html>';
+}
+
+/**
  * Sends one plain-text email to one person. $church (church_name, church_email) is who it comes from;
- * leave it empty for emails from the Archdiocese site itself.
+ * leave it empty for emails from the Archdiocese site itself. $html is an optional designed version, sent
+ * alongside the text through the SMTP account (mail programs that cannot show it use the text).
  * Returns true if it was sent - or, on localhost with no SMTP account in config/mail.php, written to
  * logs/user-emails.log (blocked from the web).
  */
-function send_plain_email(string $to, string $subject, string $body, array $church = []): bool
+function send_plain_email(string $to, string $subject, string $body, array $church = [], ?string $html = null): bool
 {
     if (!filter_var($to, FILTER_VALIDATE_EMAIL)) return false;
     $name = trim((string)($church['church_name'] ?? '')) ?: 'Archdiocese of Kota Kinabalu';
@@ -105,7 +132,7 @@ function send_plain_email(string $to, string $subject, string $body, array $chur
     $body = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $body));
 
     if (smtp_ready()) {
-        return smtp_send($to, $subject, $body, null, $name, $from);
+        return smtp_send($to, $subject, $body, $html, $name, $from);
     }
 
     $host = $_SERVER['SERVER_NAME'] ?? '';

@@ -1,0 +1,3 @@
+# Catechesis lesson handouts are private to the enrolled students.
+# They are only served by catechesis-lesson-file.php after a permission check.
+Require all denied

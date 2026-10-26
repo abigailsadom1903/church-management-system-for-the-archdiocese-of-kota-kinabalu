@@ -54,6 +54,7 @@ if ($id) {
         if ($isSuper) $error = 'The Super Admin can view requests but not change them.';
         elseif (!hash_equals($_SESSION['csrf'], $_POST['csrf'] ?? '')) $error = 'Your session expired. Please try again.';
         elseif (!in_array($new, $STATUSES, true)) $error = 'Please choose a status.';
+        elseif ($new === 'declined' && $note === '') $error = 'Please give the parishioner a reason before declining.';
         else {
             $pdo->prepare('UPDATE pastoral_requests SET status = ?, admin_note = ?, reviewed_by = ?, reviewed_at = NOW() WHERE request_id = ?')
                 ->execute([$new, $note !== '' ? $note : null, (int)$_SESSION['user_id'], $id]);
@@ -126,18 +127,12 @@ if ($id) {
             <div class="rv-foot"><a class="rv-back" href="pastoral-manage.php">back</a><span class="sx-badge <?= $stClass ?>"><?= e($stLabel) ?></span></div>
             <?php if ($req['admin_note']): ?><p class="st-note rv-note-plain"><b>Note from the church:</b> <?= e($req['admin_note']) ?></p><?php endif; ?>
         <?php else: ?>
-            <form method="post" action="pastoral-manage.php?id=<?= $id ?>" class="rv-foot rv-decide">
-                <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
-                <input type="hidden" name="id" value="<?= $id ?>">
-                <a class="rv-back" href="pastoral-manage.php">back</a>
-                <div class="rv-decide-fields">
-                    <input type="text" name="note" maxlength="255" placeholder="Note for the parishioner (optional)" value="<?= e((string)$req['admin_note']) ?>" aria-label="Note for the parishioner">
-                    <select name="status" aria-label="Status">
-                        <?php foreach ($STATUSES as $s): ?><option value="<?= $s ?>" <?= $s === $req['status'] ? 'selected' : '' ?>><?= e(pc_status($s)[0]) ?></option><?php endforeach; ?>
-                    </select>
-                    <button type="submit" class="reg-submit">Save</button>
-                </div>
-            </form>
+            <?php render_decision_panel([
+                'action' => 'pastoral-manage.php?id=' . $id, 'csrf' => $_SESSION['csrf'], 'id' => $id, 'back' => 'pastoral-manage.php',
+                'ref' => pc_ref($id), 'status' => $req['status'], 'badge' => [$stLabel, $stClass], 'note' => (string)$req['admin_note'],
+                'steps' => ['submitted' => 'Submitted', 'review' => 'Under Review'],
+                'approve' => ['given', 'Approve', 'Approved'], 'reject' => ['declined', 'Decline', 'Declined'], 'who' => 'parishioner', 'kind' => 'request',
+            ]); ?>
         <?php endif; ?>
     </main>
     <?php

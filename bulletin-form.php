@@ -40,6 +40,10 @@ if ($id) {
         header('Location: announcements.php?tab=bulletins');
         exit;
     }
+    if (!empty($existing['content'])) {   // made with the Bulletin Builder: edited there
+        header('Location: bulletin-builder.php?id=' . $id);
+        exit;
+    }
     $churchId = (int)$existing['church_id'];
 } else {
     $churchId = (int)($_GET['church'] ?? $_POST['church'] ?? 0);

@@ -1,48 +1,70 @@
 <?php
-// Emails to a parishioner about their own account and requests: the welcome / verification email
+// Emails to a parishioner about their own account and requests: the welcome / verification-code email
 // (register.php, profile.php, verify-email.php) and the result of a sacrament
 // application, pastoral request or confession booking (sacrament-review.php, pastoral-manage.php,
 // confession-manage.php).
 
 require_once __DIR__ . '/mailer.php';
 
-/**
- * Welcomes a new parishioner. With $needsVerifying the email carries a link to verify-email.php; only the
- * SHA-256 of its token is stored, so a database leak does not expose live links. Asking again replaces the link.
- */
-function send_welcome_email(PDO $pdo, int $userId, string $email, string $name, bool $needsVerifying = true): bool
+// ---- Email verification by a one-time code ------------------------------------------------------------
+// The email carries a 6-digit code (no link, so it works whatever address the site runs on); the parishioner
+// types it on verify-email.php. Only a SHA-256 of the user id and code is stored. A code works for
+// VERIFY_CODE_MINUTES and VERIFY_CODE_TRIES wrong guesses; asking for a new one replaces it.
+
+const VERIFY_CODE_MINUTES = 15;
+const VERIFY_CODE_TRIES = 5;
+
+function verify_code_hash(int $userId, string $code): string
 {
-    $body = "Hello {$name},\n\n"
-          . "Welcome to the Church Management System of the Archdiocese of Kota Kinabalu. Your account has been created.\n\n";
-
-    if ($needsVerifying) {
-        $token = bin2hex(random_bytes(32));
-        $pdo->prepare('UPDATE user SET verify_token_hash = ?, updated_at = updated_at WHERE user_id = ?')->execute([hash('sha256', $token), $userId]);
-        $body .= "Please confirm that this is your email address by opening the link below:\n\n"
-               . site_base_url() . '/verify-email.php?token=' . $token . "\n\n"
-               . "You can already sign in; verifying simply confirms that parish notices will reach you.\n\n";
-    } else {
-        $body .= 'You can sign in at ' . site_base_url() . "/login.php\n\n";
-    }
-
-    $body .= "If you did not create this account, you can ignore this email.\n";
-    return send_plain_email($email, ($needsVerifying ? 'Welcome - please verify your email' : 'Welcome') . ' - Archdiocese of Kota Kinabalu', $body);
+    return hash('sha256', $userId . ':' . $code);
 }
 
-/** Marks the account that owns this verification token as verified. Returns its row (user_name, user_email) or null. */
-function verify_email_token(PDO $pdo, string $token): ?array
+/**
+ * Emails a new verification code. $welcome: the first email after registering (it also says welcome);
+ * otherwise a code asked for again, or for a changed email address.
+ */
+function send_verification_code(PDO $pdo, int $userId, string $email, string $name, bool $welcome = false): bool
 {
-    if (!preg_match('/^[0-9a-f]{64}$/', $token)) {
-        return null;
+    $code = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    $pdo->prepare('UPDATE user SET verify_token_hash = ?, verify_expires = ?, verify_attempts = 0, updated_at = updated_at WHERE user_id = ?')
+        ->execute([verify_code_hash($userId, $code), date('Y-m-d H:i:s', time() + VERIFY_CODE_MINUTES * 60), $userId]);
+
+    $subject = $code . ' is your verification code - Archdiocese of Kota Kinabalu';
+    $intro = $welcome
+        ? 'Welcome to the Church Management System of the Archdiocese of Kota Kinabalu. Your account has been created. To confirm that this email address is yours, enter this code on the verification page:'
+        : 'Here is your code to verify this email address for your account with the Archdiocese of Kota Kinabalu:';
+    $minutes = VERIFY_CODE_MINUTES;
+
+    $after = "The code works for {$minutes} minutes. If it runs out, you can ask for a new one on the same page or on your profile.";
+    $footer = 'If you did not create this account, you can ignore this email.';
+
+    $text = "Hello {$name},\n\n{$intro}\n\n    {$code}\n\n{$after}\n\n"
+          . "Never share this code. The parish office will never ask you for it.\n\n"
+          . "{$footer}\n\nArchdiocese of Kota Kinabalu\n";
+    $html = code_email_html(($welcome ? 'Welcome, ' : 'Hello, ') . $name, $intro, 'Your verification code', $code, $after, $footer);
+
+    return send_plain_email($email, $subject, $text, [], $html);
+}
+
+/**
+ * Checks a typed code against the account's current one, and verifies the email when it matches.
+ * Returns 'ok', 'wrong' (with tries left), 'expired', 'locked' (too many wrong tries) or 'none' (no code sent).
+ */
+function verify_email_code(PDO $pdo, int $userId, string $code): string
+{
+    $stmt = $pdo->prepare('SELECT verify_token_hash, verify_expires, verify_attempts FROM user WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    if (!$row || !$row['verify_token_hash'] || !$row['verify_expires']) return 'none';
+    if ((int)$row['verify_attempts'] >= VERIFY_CODE_TRIES) return 'locked';
+    if (strtotime($row['verify_expires']) < time()) return 'expired';
+
+    if (preg_match('/^\d{6}$/', $code) && hash_equals($row['verify_token_hash'], verify_code_hash($userId, $code))) {
+        $pdo->prepare('UPDATE user SET user_verified = 1, verify_token_hash = NULL, verify_expires = NULL, verify_attempts = 0 WHERE user_id = ?')->execute([$userId]);
+        return 'ok';
     }
-    $stmt = $pdo->prepare('SELECT user_id, user_name, user_email FROM user WHERE verify_token_hash = ?');
-    $stmt->execute([hash('sha256', $token)]);
-    $user = $stmt->fetch();
-    if (!$user) {
-        return null;
-    }
-    $pdo->prepare('UPDATE user SET user_verified = 1, verify_token_hash = NULL WHERE user_id = ?')->execute([$user['user_id']]);
-    return $user;
+    $pdo->prepare('UPDATE user SET verify_attempts = verify_attempts + 1, updated_at = updated_at WHERE user_id = ?')->execute([$userId]);
+    return (int)$row['verify_attempts'] + 1 >= VERIFY_CODE_TRIES ? 'locked' : 'wrong';
 }
 
 /** church_name and church_email of a church (who a parish email comes from). */

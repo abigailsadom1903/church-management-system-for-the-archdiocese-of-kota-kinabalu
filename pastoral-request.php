@@ -207,8 +207,8 @@ include __DIR__ . '/includes/header.php';
                         <p class="sx-callout"><?= preg_replace('/(RM\d+(?:\.\d+)?)/', '<strong>$1</strong>', e($s['note'])) ?></p>
                     <?php endif; ?>
 
-                    <?php if (!empty($s['fields'])): ?>
-                        <div class="sx-grid">
+                    <?php if (!empty($s['fields'])): $beside = count($s['fields']) - 1;   // fields stacked beside a 'side' field ?>
+                        <div class="sx-grid<?= array_filter(array_column($s['fields'], 'side')) && $beside > 1 ? ' has-side" style="--side-rows: ' . ($beside - 1) : '' ?>">
                             <?php foreach ($s['fields'] as $fd) sx_render_field($fd, $f, $errors, $taken); ?>
                         </div>
                     <?php endif; ?>

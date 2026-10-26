@@ -132,7 +132,7 @@ include __DIR__ . '/includes/header.php';
                             <a href="event.php?id=<?= (int)$m['event_id'] ?>"><?= e($m['title']) ?></a>
                             <small><?= e($m['church_name']) ?> &middot; <?= people_label((int)$m['people']) ?></small>
                         </td>
-                        <td data-label="Date"><?= e(date('jS F Y', strtotime($m['event_date']))) ?><small><?= e(event_time_text($m)) ?></small></td>
+                        <td data-label="Date"><?= e(date('jS F Y', strtotime($m['event_date']))) ?><small><?= e(event_time_text($m)) ?></small><?= $past ? '' : countdown_badge($m, $m['event_date']) ?></td>
                         <td data-label="Reminder">
                             <?php if ($past): ?>
                                 <span class="reg-past">Event has passed</span>
@@ -152,4 +152,5 @@ include __DIR__ . '/includes/header.php';
         </div>
     <?php endif; ?>
 </main>
+<?= countdown_script() ?>
 <?php include __DIR__ . '/includes/footer.php'; ?>

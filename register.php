@@ -71,10 +71,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             password_hash($password, PASSWORD_DEFAULT),
             $old['phone'],
         ]);
-        send_welcome_email($pdo, (int)$pdo->lastInsertId(), $old['email'], $old['name']);   // with the link that verifies the address
+        $newId = (int)$pdo->lastInsertId();
+        send_verification_code($pdo, $newId, $old['email'], $old['name'], true);   // welcome email with the 6-digit code
 
         unset($_SESSION['csrf']);
-        header('Location: login.php?registered=1');
+        $_SESSION['verify_user_id'] = $newId;   // verify-email.php checks the code for this account
+        $_SESSION['verify_sent_at'] = time();
+        header('Location: verify-email.php?sent=1');
         exit;
     }
 }

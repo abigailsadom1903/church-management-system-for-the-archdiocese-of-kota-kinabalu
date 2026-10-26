@@ -4,7 +4,7 @@
 
 /** The management pages an admin uses. Everything else (home, login, profile, parishioner pages...) keeps the public layout. */
 const DASH_SHELL_PAGES = [
-    'announcements.php', 'announcement-form.php', 'bulletin-form.php',
+    'announcements.php', 'announcement-form.php', 'bulletin-form.php', 'bulletin-builder.php',
     'catechesis-manage.php', 'catechesis-program-form.php',
     'church-information.php',
     'confession-manage.php',

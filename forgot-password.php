@@ -8,7 +8,6 @@ if (empty($_SESSION['csrf'])) {
 }
 
 $error = '';
-$sent  = false;
 $email = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -20,13 +19,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter a valid email address.';
     } else {
         foreach (find_accounts_by_email($pdo, $email) as $account) {
-            $token = create_reset_token($pdo, $account['type'], $account['id']);
-            if ($token !== null) {
-                send_reset_email($email, $account['name'], reset_link($token));
+            $code = create_reset_code($pdo, $account['type'], $account['id']);
+            if ($code !== null) {
+                send_reset_code_email($email, $account, $code);
             }
         }
         // Same result whether or not the email exists, so this page can't be used to discover accounts.
-        $sent = true;
+        $_SESSION['reset_email'] = $email;
+        $_SESSION['reset_sent_at'] = time();
+        header('Location: reset-password.php?sent=1');
+        exit;
     }
 }
 
@@ -45,29 +47,23 @@ include __DIR__ . '/includes/header.php';
 
     <section class="auth-card serif">
         <h1>Forgot Password</h1>
-        <p class="subtitle">Enter your email and we'll send you a link to reset your password.</p>
+        <p class="subtitle">Enter your email and we'll send you a 6-digit code to reset your password.</p>
 
-        <?php if ($sent): ?>
-            <div class="alert success" role="status">
-                If an account exists for <strong><?= e($email) ?></strong>, a reset link has been sent.
-                The link expires in <?= RESET_TOKEN_TTL_MINUTES ?> minutes.
-            </div>
-        <?php else: ?>
-            <?php if ($error): ?>
-                <div class="alert" role="alert"><?= e($error) ?></div>
-            <?php endif; ?>
-
-            <form method="post" action="forgot-password.php" novalidate>
-                <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
-
-                <div class="field">
-                    <label for="email">Email Address</label>
-                    <input type="email" id="email" name="email" placeholder="name@archkk.org" maxlength="100" value="<?= e($email) ?>" autocomplete="email" required autofocus>
-                </div>
-
-                <button type="submit" class="btn-primary">Send Reset Link</button>
-            </form>
+        <?php if ($error): ?>
+            <div class="alert" role="alert"><?= e($error) ?></div>
         <?php endif; ?>
+
+        <form method="post" action="forgot-password.php" novalidate>
+            <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
+
+            <div class="field">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" placeholder="name@archkk.org" maxlength="100" value="<?= e($email) ?>" autocomplete="email" required autofocus>
+            </div>
+
+            <button type="submit" class="btn-primary">Send Reset Code</button>
+        </form>
+        <?php if (!empty($_SESSION['reset_email'])): ?><p class="switch-auth"><a href="reset-password.php">I already have a code</a></p><?php endif; ?>
 
         <p class="switch-auth divider"><a href="login.php"><strong>&larr; Back to Sign In</strong></a></p>
     </section>
