@@ -69,8 +69,43 @@ function check_registrant(PDO $pdo, array $ev, array $in, int $exceptRid = 0): a
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+    if ($action === 'scan') {
+        // The camera scanner on this page: check in one pass by its code (answered as JSON, the page stays open).
+        header('Content-Type: application/json');
+        if (!hash_equals($_SESSION['csrf'], $_POST['csrf'] ?? '')) { echo json_encode(['ok' => false, 'msg' => 'Your session expired. Please reload the page.']); exit; }
+        ev_reg_ensure($pdo);
+        // The QR holds the check-in address (whatever site address it was made on) or just the code typed by hand.
+        $raw = strtoupper(trim((string)($_POST['code'] ?? '')));
+        $code = preg_match('/CODE=([A-Z0-9]{12})/', $raw, $m) ? $m[1] : preg_replace('/[\s-]/', '', $raw);
+        $r = null;
+        if (ev_pass_valid($code)) {
+            $q = $pdo->prepare('SELECT r.*, e.title FROM event_registrations r JOIN events e ON e.event_id = r.event_id WHERE r.pass_code = ?');
+            $q->execute([$code]);
+            $r = $q->fetch();
+        }
+        if (!$r) { echo json_encode(['ok' => false, 'msg' => 'This is not a valid admission pass.']); exit; }
+        if ((int)$r['event_id'] !== $id) { echo json_encode(['ok' => false, 'msg' => 'This pass is for another event: ' . $r['title'] . '.']); exit; }
+        $already = (bool)$r['checked_in_at'];
+        if (!$already) $pdo->prepare('UPDATE event_registrations SET checked_in_at = NOW() WHERE registration_id = ? AND checked_in_at IS NULL')->execute([(int)$r['registration_id']]);
+        $d = ev_reg_details($r['details']);
+        echo json_encode([
+            'ok' => true, 'already' => $already, 'rid' => (int)$r['registration_id'], 'name' => $r['name'],
+            'people' => people_label((int)$r['people']), 'with' => implode(', ', $d['participants']), 'access' => $d['access'],
+            'time' => date('g:i A', $already ? strtotime($r['checked_in_at']) : time()),
+        ]);
+        exit;
+    }
     if (!hash_equals($_SESSION['csrf'], $_POST['csrf'] ?? '')) {
         $error = 'Your session expired. Please try again.';
+    } elseif ($action === 'checkin' || $action === 'uncheck') {
+        // Check in (or undo) one registration of THIS event from its row.
+        ev_reg_ensure($pdo);
+        $rid = (int)($_POST['rid'] ?? 0);
+        $pdo->prepare($action === 'checkin'
+            ? 'UPDATE event_registrations SET checked_in_at = NOW() WHERE registration_id = ? AND event_id = ? AND checked_in_at IS NULL'
+            : 'UPDATE event_registrations SET checked_in_at = NULL WHERE registration_id = ? AND event_id = ?')->execute([$rid, $id]);
+        header('Location: event-participants.php?id=' . $id . '#r' . $rid);
+        exit;
     } elseif ($action === 'remove') {
         // Only ever removes a registration that belongs to THIS event.
         $pdo->prepare('DELETE FROM event_registrations WHERE registration_id = ? AND event_id = ?')->execute([(int)($_POST['rid'] ?? 0), $id]);
@@ -145,11 +180,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+ev_reg_ensure($pdo);
 $stmt = $pdo->prepare('SELECT * FROM event_registrations WHERE event_id = ? ORDER BY created_at, registration_id');
 $stmt->execute([$id]);
 $people = $stmt->fetchAll();
 $participants = array_sum(array_column($people, 'people'));
 $withEmail = count(array_filter($people, fn($p) => $p['email']));
+$arrived = array_sum(array_map(fn($p) => $p['checked_in_at'] ? (int)$p['people'] : 0, $people));   // people checked in at the door
+$parishNames = $pdo->query('SELECT church_info_id, church_name FROM church_info')->fetchAll(PDO::FETCH_KEY_PAIR);
 
 // "Email All Participants" opens a compose form on this page, already filled in; the site sends the message.
 $allEmails = array_values(array_unique(array_filter(array_map(
@@ -203,11 +241,13 @@ include __DIR__ . '/includes/header.php';
             <div><b><?= count($people) ?></b><span>Registrants</span></div>
             <div><b><?= $participants ?></b><span>Participants</span></div>
             <div><b><?= $withEmail ?></b><span>With Email</span></div>
+            <div><b><?= $arrived ?></b><span>Checked in</span></div>
             <?php if ($ev['capacity'] !== null): ?><div><b><?= $left ?></b><span>Places left</span></div><?php endif; ?>
         </div>
     </section>
 
     <div class="rg-toolbar">
+        <?php if ($people): ?><button type="button" class="btn-scan" id="scan-open" aria-controls="scan-dialog"><?= ev_icon('scan', 16) ?> Scan passes</button><?php endif; ?>
         <button type="button" class="btn-add" id="add-toggle" aria-expanded="<?= $addErrors ? 'true' : 'false' ?>" aria-controls="add-panel"><?= ev_icon('plus', 16) ?> Add Registrant</button>
         <?php if ($allEmails): ?>
             <button type="button" class="btn-email-all" id="mail-toggle" aria-expanded="<?= $mailError ? 'true' : 'false' ?>" aria-controls="mail-panel"><?= ev_icon('mail', 16) ?> Email All Participants</button>
@@ -253,10 +293,27 @@ include __DIR__ . '/includes/header.php';
             <article class="rg-row" id="r<?= $rid ?>">
                 <span class="rg-avatar <?= avatar_class($p['name']) ?>" aria-hidden="true"><?= e(person_initials($p['name'])) ?></span>
                 <div class="rg-info">
-                    <h3><?= e($p['name']) ?> <span class="people-badge pb-<?= min(3, max(1, (int)$p['people'])) ?>"><?= e(people_label((int)$p['people'])) ?></span></h3>
+                    <h3><?= e($p['name']) ?> <span class="people-badge pb-<?= min(3, max(1, (int)$p['people'])) ?>"><?= e(people_label((int)$p['people'])) ?></span>
+                        <?php if ($p['checked_in_at']): ?><span class="rg-in" title="Checked in <?= e(date('j M, g:i A', strtotime($p['checked_in_at']))) ?>"><?= ev_icon('check', 11) ?> Checked in <?= e(date('g:i A', strtotime($p['checked_in_at']))) ?></span><?php endif; ?></h3>
                     <p><?= $p['email'] ? e($p['email']) : '<span class="muted">No email</span>' ?><?= $p['phone'] ? ' &middot; ' . e($p['phone']) : '' ?></p>
+                    <?php $pd = ev_reg_details($p['details'] ?? null); $bits = [];
+                        if ($pd['participants']) $bits[] = '<b>With</b> ' . e(implode(', ', $pd['participants']));
+                        if ($pd['parish_id'] && isset($parishNames[$pd['parish_id']])) $bits[] = '<b>Parish</b> ' . e($parishNames[$pd['parish_id']]);
+                        if ($pd['first_time'] === 'yes') $bits[] = '<b>First time</b>';
+                        if ($pd['access'] !== '') $bits[] = '<b class="rg-need">Needs</b> ' . e($pd['access']);
+                        if ($pd['questions'] !== '') $bits[] = '<b>Question</b> ' . e($pd['questions']);
+                        if ($bits): ?><ul class="rg-more"><?php foreach ($bits as $b): ?><li><?= $b ?></li><?php endforeach; ?></ul><?php endif; ?>
                 </div>
                 <div class="rg-actions">
+                    <form method="post" action="event-participants.php?id=<?= $id ?>" class="rg-check">
+                        <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
+                        <input type="hidden" name="rid" value="<?= $rid ?>">
+                        <?php if ($p['checked_in_at']): ?>
+                            <button type="submit" name="action" value="uncheck" class="btn-checkin is-in" data-confirm="Undo the check-in of <?= e($p['name']) ?>?" title="Checked in at <?= e(date('g:i A', strtotime($p['checked_in_at']))) ?> &middot; click to undo"><?= ev_icon('check', 14) ?> Checked in</button>
+                        <?php else: ?>
+                            <button type="submit" name="action" value="checkin" class="btn-checkin" title="Mark <?= e($p['name']) ?> as arrived"><?= ev_icon('scan', 14) ?> Check in</button>
+                        <?php endif; ?>
+                    </form>
                     <?php if ($p['email']): ?><button type="button" class="btn-mail" data-rid="<?= $rid ?>" data-name="<?= e($p['name']) ?>" data-email="<?= e($p['email']) ?>" aria-controls="mail-panel" title="Email <?= e($p['name']) ?> only"><?= ev_icon('mail', 14) ?> Email</button>
                     <?php else: ?><span class="btn-mail is-off"><?= ev_icon('mail', 14) ?> Email</span><?php endif; ?>
                     <button type="button" class="ico-btn sm rg-toggle" aria-expanded="<?= $open ? 'true' : 'false' ?>" aria-controls="e<?= $rid ?>" title="Edit details" aria-label="Edit <?= e($p['name']) ?>"><?= ev_icon('down', 15) ?></button>
@@ -284,7 +341,155 @@ include __DIR__ . '/includes/header.php';
         <?php endforeach; ?>
         <?php if (!$people): ?><p class="ann-empty">Nobody has registered yet. Use &ldquo;Add Registrant&rdquo; to add someone who signed up by phone or in person.</p><?php endif; ?>
     </div>
+
+    <?php if ($people): ?>
+    <!-- Scan passes: the device camera reads admission-pass QR codes and checks people in one after another -->
+    <dialog class="scan-dlg" id="scan-dialog" aria-labelledby="scan-title" data-csrf="<?= e($_SESSION['csrf']) ?>" data-url="event-participants.php?id=<?= $id ?>">
+        <header class="scan-head">
+            <div><h2 id="scan-title"><?= ev_icon('scan', 18) ?> Scan passes</h2><p><?= e($ev['title']) ?></p></div>
+            <button type="button" class="scan-x" id="scan-close" aria-label="Close the scanner">&times;</button>
+        </header>
+        <div class="scan-cam" id="scan-cam">
+            <video id="scan-video" playsinline muted></video>
+            <span class="scan-frame" aria-hidden="true"></span>
+            <p class="scan-cam-msg" id="scan-cam-msg">Starting the camera&hellip;</p>
+        </div>
+        <div class="scan-result" id="scan-result" role="status" aria-live="assertive" hidden></div>
+        <form class="scan-manual" id="scan-manual" autocomplete="off">
+            <label for="scan-code">Or type the pass code</label>
+            <div><input type="text" id="scan-code" maxlength="20" placeholder="e.g. 5K9B U224 TQQG" autocapitalize="characters" spellcheck="false"><button type="submit" class="btn-checkin">Check in</button></div>
+        </form>
+        <footer class="scan-foot"><span id="scan-count">0</span> checked in while scanning &middot; <button type="button" class="scan-done" id="scan-done">Done</button></footer>
+    </dialog>
+    <?php endif; ?>
 </main>
+<script>
+// Scan passes: camera QR reading (the browser's own BarcodeDetector) + typing the code; each pass is checked in at once.
+(function () {
+    var dlg = document.getElementById('scan-dialog'), openBtn = document.getElementById('scan-open');
+    if (!dlg || !openBtn) return;
+    var video = document.getElementById('scan-video'), camMsg = document.getElementById('scan-cam-msg'), cam = document.getElementById('scan-cam');
+    var out = document.getElementById('scan-result'), countEl = document.getElementById('scan-count'), manual = document.getElementById('scan-manual'), codeIn = document.getElementById('scan-code');
+    var stream = null, detector = null, timer = null, busy = false, last = '', lastAt = 0, count = 0, changed = false;
+
+    function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function show(cls, html) { out.className = 'scan-result ' + cls; out.innerHTML = html; out.hidden = false; }
+    function beep(ok) {   // short sound so the person at the door knows without looking
+        try { var a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+            o.frequency.value = ok ? 880 : 220; g.gain.value = .08; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok ? .12 : .3)); } catch (e) {}
+        if (navigator.vibrate) navigator.vibrate(ok ? 60 : [80, 60, 80]);
+    }
+
+    function send(text) {
+        if (busy) return;
+        busy = true;
+        var body = new FormData();
+        body.set('action', 'scan'); body.set('csrf', dlg.dataset.csrf); body.set('code', text);
+        fetch(dlg.dataset.url, { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok) { beep(false); show('is-bad', '<b>' + esc(d.msg) + '</b>'); return; }
+                changed = true;
+                if (!d.already) { count++; countEl.textContent = count; }
+                beep(!d.already);
+                show(d.already ? 'is-again' : 'is-ok',
+                    '<span class="scan-big">' + (d.already ? 'Already checked in' : 'Checked in') + '</span>' +
+                    '<b>' + esc(d.name) + '</b><small>' + esc(d.people) + (d.with ? ' &middot; with ' + esc(d.with) : '') + ' &middot; ' + esc(d.time) + '</small>' +
+                    (d.access ? '<em>Assistance: ' + esc(d.access) + '</em>' : ''));
+            })
+            .catch(function () { beep(false); show('is-bad', '<b>Could not reach the server. Please try again.</b>'); })
+            .then(function () { busy = false; });
+    }
+
+    function found(text) {
+        if (!text) return;
+        if (text === last && Date.now() - lastAt < 4000) return;   // the same pass held in front of the camera: once is enough
+        last = text; lastAt = Date.now();
+        send(text);
+    }
+
+    // Browsers without a built-in QR reader (iPhone, Chrome/Edge on Windows) use jsQR on a small copy of each frame.
+    var canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+    function tick() {
+        if (video.readyState < 2 || busy) return;
+        if (detector) {
+            detector.detect(video).then(function (codes) { if (codes.length) found(codes[0].rawValue || ''); }).catch(function () {});
+            return;
+        }
+        if (typeof jsQR !== 'function' || !video.videoWidth) return;
+        var scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+        canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        var r = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        if (r && r.data) found(r.data);
+    }
+
+    // jsQR is only fetched (from this site) the first time the scanner opens in a browser that needs it.
+    function needReader() {
+        if ('BarcodeDetector' in window) {
+            return BarcodeDetector.getSupportedFormats().then(function (f) {
+                if (f.indexOf('qr_code') >= 0) { detector = new BarcodeDetector({ formats: ['qr_code'] }); return; }
+                return loadJsQR();
+            }).catch(loadJsQR);
+        }
+        return loadJsQR();
+    }
+    function loadJsQR() {
+        if (typeof jsQR === 'function') return Promise.resolve();
+        return new Promise(function (ok, fail) {
+            var s = document.createElement('script');
+            s.src = 'assets/js/vendor/jsQR.js?v=1.4.0';
+            s.onload = ok; s.onerror = fail;
+            document.head.appendChild(s);
+        });
+    }
+
+    function start() {
+        out.hidden = true; count = 0; countEl.textContent = '0'; changed = false;
+        if (!navigator.mediaDevices || !window.isSecureContext) {
+            cam.classList.add('is-off');
+            camMsg.textContent = 'The camera only works on a secure (https) address. Type the pass code below instead.';
+            return;
+        }
+        camMsg.textContent = 'Starting the camera…';
+        needReader().then(openCamera, function () {
+            cam.classList.add('is-off');
+            camMsg.textContent = 'The QR reader could not be loaded. Type the pass code below instead.';
+        });
+    }
+    function openCamera() {
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (s) {
+            stream = s; video.srcObject = s; video.play();
+            cam.classList.remove('is-off');
+            camMsg.textContent = 'Point the camera at the QR code on the pass.';
+            timer = setInterval(tick, 350);
+        }).catch(function () {
+            cam.classList.add('is-off');
+            camMsg.textContent = 'The camera could not be opened (permission blocked?). Type the pass code below instead.';
+        });
+    }
+    function stop() {
+        clearInterval(timer); timer = null;
+        if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+        stream = null;
+    }
+    function close() {
+        stop();
+        if (dlg.open) dlg.close();
+        if (changed) location.reload();   // show the new check-ins in the list
+    }
+
+    openBtn.addEventListener('click', function () { dlg.showModal(); start(); });
+    document.getElementById('scan-close').addEventListener('click', close);
+    document.getElementById('scan-done').addEventListener('click', close);
+    dlg.addEventListener('cancel', function (e) { e.preventDefault(); close(); });
+    manual.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (codeIn.value.trim()) { send(codeIn.value.trim()); codeIn.value = ''; }
+    });
+})();
+</script>
 <script>
 (function () {
     var panel = document.getElementById('add-panel'), toggle = document.getElementById('add-toggle');

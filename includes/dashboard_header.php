@@ -139,6 +139,7 @@ function dash_header(string $pageTitle, string $roleLabel, int $pending, string 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= $base ?>assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: 1 ?>">
     <?php require_once __DIR__ . '/theme.php'; theme_head($base); ?>
+    <?php require_once __DIR__ . '/pwa.php'; pwa_head($base); ?>
 </head>
 <body class="dash has-drawer<?= $shell ? ' is-shell' : '' ?>">
 <div class="dash-head">

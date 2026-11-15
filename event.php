@@ -42,7 +42,8 @@ unset($_SESSION['event_flash']);
 // Has this public user already registered? (Registrations are made on event-register.php.)
 $myReg = null;
 if (($_SESSION['role'] ?? '') === 'user' && !empty($_SESSION['user_id'])) {
-    $r = $pdo->prepare('SELECT name, email, phone, people, created_at FROM event_registrations WHERE event_id = ? AND user_id = ?');
+    ev_reg_ensure($pdo);
+    $r = $pdo->prepare('SELECT name, email, phone, people, details, pass_code, created_at FROM event_registrations WHERE event_id = ? AND user_id = ?');
     $r->execute([$id, (int)$_SESSION['user_id']]);
     $myReg = $r->fetch() ?: null;
 }
@@ -107,7 +108,8 @@ include __DIR__ . '/includes/header.php';
                 <div class="er-banner is-ok">
                     <span class="er-banner-ico"><?= ev_icon('check', 15) ?></span>
                     <p>You are registered<?= (int)$myReg['people'] > 1 ? ' (' . people_label((int)$myReg['people']) . ')' : '' ?>.</p>
-                    <a class="er-btn" href="my-events.php">View my registrations <?= ev_icon('arrow', 14) ?></a>
+                    <?php if ($myReg['pass_code']): ?><a class="er-btn" href="event-pass.php?code=<?= e($myReg['pass_code']) ?>"><?= ev_icon('ticket', 14) ?> My pass</a>
+                    <?php else: ?><a class="er-btn" href="my-events.php">View my registrations <?= ev_icon('arrow', 14) ?></a><?php endif; ?>
                 </div>
                 <details class="st-details er-details">
                     <summary><span class="st-details-ico"><?= ev_icon('file', 16) ?></span>View what you submitted<span class="st-details-chev"><?= ev_icon('down', 16) ?></span></summary>
@@ -116,6 +118,7 @@ include __DIR__ . '/includes/header.php';
                         <div><dt><?= ev_icon('mail', 14) ?> Email</dt><dd><?= $myReg['email'] ? e($myReg['email']) : '&mdash;' ?></dd></div>
                         <div><dt><?= ev_icon('phone', 14) ?> Phone</dt><dd><?= $myReg['phone'] ? e($myReg['phone']) : '&mdash;' ?></dd></div>
                         <div><dt><?= ev_icon('users', 14) ?> People</dt><dd><?= e(people_label((int)$myReg['people'])) ?></dd></div>
+                        <?php $myD = ev_reg_details($myReg['details']); if ($myD['participants']): ?><div><dt><?= ev_icon('users', 14) ?> With</dt><dd><?= e(implode(', ', $myD['participants'])) ?></dd></div><?php endif; ?>
                         <div><dt><?= ev_icon('calendar', 14) ?> Registered on</dt><dd><?= e(date('j M Y, g:i A', strtotime($myReg['created_at']))) ?></dd></div>
                     </dl>
                 </details>

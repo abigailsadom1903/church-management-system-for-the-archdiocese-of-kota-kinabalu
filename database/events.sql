@@ -36,9 +36,13 @@ CREATE TABLE IF NOT EXISTS event_registrations (
     email           VARCHAR(100) NULL,                                     -- optional (an admin may add someone by phone only)
     phone           VARCHAR(30)  NULL,
     people          TINYINT UNSIGNED NOT NULL DEFAULT 1,                   -- how many people this registration covers
+    details         TEXT NULL,                                             -- JSON: type, parish_id, participants[], first_time, questions, access
+    pass_code       CHAR(12) NULL,                                         -- secret code on the admission pass (QR)
     reminded_at     DATETIME NULL,                                         -- when the "event is tomorrow" reminder was emailed
+    checked_in_at   DATETIME NULL,                                         -- when the pass was scanned at the door
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_event_email (event_id, email),                           -- one registration per email per event
+    UNIQUE KEY uq_reg_pass (pass_code),
     CONSTRAINT fk_reg_event FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
     CONSTRAINT fk_reg_user  FOREIGN KEY (user_id)  REFERENCES user(user_id)    ON DELETE SET NULL
 );

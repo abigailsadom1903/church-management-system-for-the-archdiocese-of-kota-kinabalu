@@ -171,13 +171,35 @@ include __DIR__ . '/includes/header.php';
         if (time) {
             var t = document.createElement('span');
             t.className = 'as-time';
-            t.textContent = (who === 'me' ? 'You' : 'Assistant') + ' · ' + clock(time);
+            t.textContent = (who === 'me' ? 'You' : 'AI Assistant') + ' · ' + clock(time);
             col.appendChild(t);
         }
         row.appendChild(ico); row.appendChild(col);
         log.appendChild(row);
         scroll();
         return row;
+    }
+
+    // A new AI reply writes itself in, word by word (the words are all there; CSS only fades them in).
+    function reveal(row) {
+        row.classList.add('is-fresh');
+        var n = 0, nodes = [], walk = document.createTreeWalker(row.querySelector('.as-bubble'), NodeFilter.SHOW_TEXT);
+        while (walk.nextNode()) if (!walk.currentNode.parentNode.closest('.as-links')) nodes.push(walk.currentNode);
+        var total = nodes.reduce(function (s, t) { return s + t.nodeValue.split(/\s+/).length; }, 0);
+        var step = Math.min(40, 2200 / Math.max(1, total));
+        nodes.forEach(function (t) {
+            var frag = document.createDocumentFragment();
+            t.nodeValue.split(/(\s+)/).forEach(function (w) {
+                if (!w) return;
+                if (/^\s+$/.test(w)) { frag.appendChild(document.createTextNode(w)); return; }
+                var s = document.createElement('span');
+                s.className = 'ai-w';
+                s.style.animationDelay = Math.round(n++ * step) + 'ms';
+                s.textContent = w;
+                frag.appendChild(s);
+            });
+            t.parentNode.replaceChild(frag, t);
+        });
     }
 
     history.forEach(function (m) { bubble(m.who, m.text, m.links, m.t); });
@@ -201,7 +223,8 @@ include __DIR__ . '/includes/header.php';
                 var msg = res.ok ? res.j.text : (res.j.error || 'Sorry, something went wrong.');
                 var links = res.ok ? res.j.links : [];
                 var at = Date.now();
-                bubble('bot', msg, links, at);
+                var row = bubble('bot', msg, links, at);
+                if (res.ok) reveal(row);
                 history.push({ who: 'bot', text: msg, links: links, t: at }); save();
             })
             .catch(function () { typing.remove(); bubble('bot', 'Sorry, I could not reach the server. Please try again.', null, Date.now()); })

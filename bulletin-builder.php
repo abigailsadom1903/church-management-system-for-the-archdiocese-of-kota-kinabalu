@@ -243,7 +243,7 @@ include __DIR__ . '/includes/header.php';
                     <label for="intro">Welcome message <span class="opt">(optional, shown at the top)</span></label>
                     <textarea id="intro" name="intro" rows="4" maxlength="<?= BULLETIN_INTRO_MAX ?>" placeholder="A few words from the parish priest or office..."><?= e($f['intro']) ?></textarea>
                     <?php if (gemini_ready()): ?>
-                        <span class="bb-ai"><button type="button" id="bb-ai"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z"/></svg> Write with AI</button><small id="bb-ai-msg" role="status"></small></span>
+                        <span class="bb-ai"><button type="button" id="bb-ai" class="ai-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path class="ai-twinkle" d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z"/></svg> Write with AI</button><small id="bb-ai-msg" role="status"></small></span>
                     <?php endif; ?>
                 </div>
                 <div class="<?= fcb($errors, 'notices') ?>">
@@ -297,7 +297,7 @@ include __DIR__ . '/includes/header.php';
         fetch('bulletin-builder.php', { method: 'POST', body: data, credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
-                if (j.text) { intro.value = j.text; msg.textContent = 'Done. Check it and change anything you like.'; }
+                if (j.text) { intro.value = j.text; msg.textContent = 'Done. Check it and change anything you like.'; intro.classList.remove('ai-filled'); void intro.offsetWidth; intro.classList.add('ai-filled'); }
                 else msg.textContent = j.error || 'The AI could not write a message just now.';
             })
             .catch(function () { msg.textContent = 'The AI could not be reached. Please try again.'; })

@@ -132,7 +132,7 @@ include __DIR__ . '/includes/header.php';
                 <strong>Need help with the wording?</strong>
                 <span>Describe it in your own words and let AI write a first draft. Nothing is posted until you press Save.</span>
             </div>
-            <button type="button" class="ai-gen-open" id="ai-open" aria-expanded="false" aria-controls="ai-panel">&#10024; Generate with AI</button>
+            <button type="button" class="ai-gen-open ai-btn" id="ai-open" aria-expanded="false" aria-controls="ai-panel"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path class="ai-twinkle" d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z"/></svg> Generate with AI</button>
         </div>
 
         <div class="ai-gen-panel" id="ai-panel" hidden>
@@ -147,7 +147,7 @@ include __DIR__ . '/includes/header.php';
                 </select>
                 <span class="ai-gen-note">Include the date, time and place. The AI will not make any up.</span>
                 <button type="button" class="btn-cancel" id="ai-close">Close</button>
-                <button type="button" class="btn-save" id="ai-generate">Generate</button>
+                <button type="button" class="btn-save ai-btn" id="ai-generate">Generate</button>
             </div>
 
             <div class="alert info-alert" id="ai-error" role="alert" hidden></div>

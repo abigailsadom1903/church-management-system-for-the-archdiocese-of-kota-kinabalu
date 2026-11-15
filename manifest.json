@@ -1,0 +1,25 @@
+{
+    "name": "Archdiocese of Kota Kinabalu",
+    "short_name": "ArchKK",
+    "description": "Mass times, events, sacraments, pastoral care and parish news of the Archdiocese of Kota Kinabalu.",
+    "id": "./",
+    "start_url": "./index.php?source=app",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#ffffff",
+    "theme_color": "#5b2d82",
+    "lang": "en",
+    "categories": ["lifestyle", "social", "education"],
+    "icons": [
+        { "src": "assets/images/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "assets/images/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+        { "src": "assets/images/app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    ],
+    "shortcuts": [
+        { "name": "Church Calendar", "short_name": "Calendar", "url": "./events.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] },
+        { "name": "Sacraments", "url": "./sacraments.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] },
+        { "name": "My Registrations", "short_name": "My events", "url": "./my-events.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] },
+        { "name": "Ask AI", "url": "./assistant.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] }
+    ]
+}

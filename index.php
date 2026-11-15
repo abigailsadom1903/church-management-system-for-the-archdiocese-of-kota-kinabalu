@@ -31,8 +31,8 @@ include __DIR__ . '/includes/header.php';
 
 <?php if ($signedIn): ?>
     <a href="assistant.php" class="ai-fab" aria-label="Ask the Intelligent Church Assistant">
-        <span class="ai-fab-badge" aria-hidden="true"></span>
         <span class="ai-fab-face" aria-hidden="true">
+            <span class="ai-fab-badge"></span>
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="7" x2="12" y2="3.3"/><circle cx="12" cy="2.4" r="1.1" fill="currentColor" stroke="none"/>
                 <rect x="4.5" y="7" width="15" height="12" rx="4.5"/>
@@ -42,7 +42,10 @@ include __DIR__ . '/includes/header.php';
                 <path d="M9.3 16.4c.9.9 4.5.9 5.4 0"/>
             </svg>
         </span>
-        <span class="ai-fab-tip">Ask AI<small>Get help anytime</small></span>
+        <span class="ai-fab-tip">
+            <b>Ask AI <svg class="ai-fab-spark" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path class="ai-twinkle" d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/></svg></b>
+            <small>Get help anytime</small>
+        </span>
     </a>
 <?php endif; ?>
 <button type="button" class="to-top" id="to-top" aria-label="Back to the top" hidden>

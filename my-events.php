@@ -82,8 +82,16 @@ unset($_SESSION['event_registered']);
 // ---- My registrations: coming up first (soonest at the top), then the ones already past ---------
 $mine = [];
 if ($uid) {
+    ev_reg_ensure($pdo);
+    // Registrations made before admission passes existed get their pass code now.
+    $old = $pdo->prepare('SELECT registration_id FROM event_registrations WHERE user_id = ? AND pass_code IS NULL');
+    $old->execute([$uid]);
+    $give = $pdo->prepare('UPDATE event_registrations SET pass_code = ? WHERE registration_id = ? AND pass_code IS NULL');
+    foreach ($old->fetchAll(PDO::FETCH_COLUMN) as $rid) {
+        try { $give->execute([ev_pass_code(), (int)$rid]); } catch (PDOException $ex) { /* a code clash: it gets one next time */ }
+    }
     $stmt = $pdo->prepare(
-        'SELECT r.registration_id, r.people, e.event_id, e.title, e.event_date, e.start_time, e.end_time, e.is_all_day, e.location, c.church_name
+        'SELECT r.registration_id, r.people, r.pass_code, r.checked_in_at, e.event_id, e.title, e.event_date, e.start_time, e.end_time, e.is_all_day, e.location, c.church_name
            FROM event_registrations r
            JOIN events e ON e.event_id = r.event_id
            JOIN church_info c ON c.church_info_id = e.church_id
@@ -169,6 +177,7 @@ include __DIR__ . '/includes/header.php';
                                 <li><span><?= ev_icon('users', 14) ?></span> <?= people_label((int)$m['people']) ?></li>
                             </ul>
                             <div class="me-acts">
+                                <?php if ($m['pass_code']): ?><a class="me-btn is-solid" href="event-pass.php?code=<?= e($m['pass_code']) ?>"><?= ev_icon('ticket', 14) ?> View pass</a><?php endif; ?>
                                 <form method="post" action="my-events.php">
                                     <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
                                     <input type="hidden" name="action" value="remind">

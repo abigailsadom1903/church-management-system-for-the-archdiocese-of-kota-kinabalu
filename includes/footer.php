@@ -40,6 +40,7 @@ $footSignedIn = !empty($_SESSION['user_id']);
             <a href="<?= $footerRoot ?>terms.php">Terms</a>
             <a href="<?= $footerRoot ?>privacy.php">Privacy</a>
             <a href="<?= $footerRoot ?>cookies.php">Cookies</a>
+            <a href="#" class="foot-install" data-pwa-install hidden>Install app</a>
         </nav>
     </div>
 </footer>

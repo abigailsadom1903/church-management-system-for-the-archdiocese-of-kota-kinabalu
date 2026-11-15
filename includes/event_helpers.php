@@ -151,6 +151,9 @@ function ev_icon(string $name, int $size = 16): string
         'arrow'    => '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
         'phone'    => '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z"/>',
         'user'     => '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        'download' => '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+        'ticket'   => '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
+        'scan'     => '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
     ];
     return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p[$name] . '</svg>';
 }
@@ -174,4 +177,67 @@ function people_label(int $n): string
 function avatar_class(string $name): string
 {
     return 'av-' . (abs(crc32(mb_strtolower($name))) % 4);
+}
+
+// ---- Registration details and the admission pass ---------------------------------------------------
+
+/**
+ * Adds the columns for the registration details, the admission pass and check-in when this database
+ * does not have them yet (same as database/event_registration_details.sql). Runs its check once a request.
+ */
+function ev_reg_ensure(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    $have = array_column($pdo->query('SHOW COLUMNS FROM event_registrations')->fetchAll(), 'Field');
+    $add = [];
+    if (!in_array('details', $have, true))       $add[] = 'ADD COLUMN details TEXT NULL AFTER people';
+    if (!in_array('pass_code', $have, true))     $add[] = 'ADD COLUMN pass_code CHAR(12) NULL AFTER details, ADD UNIQUE KEY uq_reg_pass (pass_code)';
+    if (!in_array('checked_in_at', $have, true)) $add[] = 'ADD COLUMN checked_in_at DATETIME NULL AFTER reminded_at';
+    if ($add) $pdo->exec('ALTER TABLE event_registrations ' . implode(', ', $add));
+}
+
+/** A new secret pass code: 12 characters, no look-alikes (0/O, 1/I/L). */
+function ev_pass_code(): string
+{
+    $abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    $s = '';
+    for ($i = 0; $i < 12; $i++) $s .= $abc[random_int(0, strlen($abc) - 1)];
+    return $s;
+}
+
+/** True when a string looks like a pass code (checked before it goes near the database). */
+function ev_pass_valid(string $code): bool
+{
+    return (bool)preg_match('/^[A-HJ-NP-Z2-9]{12}$/', $code);
+}
+
+/** The registration number people see on their pass, e.g. "EVT-2026-0042". */
+function ev_reg_ref(int $id, string $eventDate): string
+{
+    return 'EVT-' . substr($eventDate, 0, 4) . '-' . str_pad((string)$id, 4, '0', STR_PAD_LEFT);
+}
+
+/** The saved extra answers of a registration, always with every key present. */
+function ev_reg_details(?string $json): array
+{
+    $d = json_decode((string)$json, true);
+    $d = is_array($d) ? $d : [];
+    return [
+        'type'         => ($d['type'] ?? '') === 'group' ? 'group' : 'individual',
+        'parish_id'    => (int)($d['parish_id'] ?? 0),
+        'participants' => array_values(array_filter(array_map('strval', (array)($d['participants'] ?? [])), 'strlen')),
+        'first_time'   => in_array($d['first_time'] ?? '', ['yes', 'no'], true) ? $d['first_time'] : '',
+        'questions'    => (string)($d['questions'] ?? ''),
+        'access'       => (string)($d['access'] ?? ''),
+    ];
+}
+
+/** This site's address up to the project folder, e.g. "https://example.org/church-management-system/". */
+function ev_site_root(): string
+{
+    if (defined('APP_URL')) return rtrim(APP_URL, '/') . '/';
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+    return ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(str_replace(chr(92), '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/') . '/';
 }

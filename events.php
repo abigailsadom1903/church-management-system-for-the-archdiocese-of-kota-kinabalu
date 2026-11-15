@@ -449,13 +449,14 @@ include __DIR__ . '/includes/header.php';
 
 
         <!-- "This week": a short summary of the next 7 days, written by AI from this calendar -->
-        <section class="cx-ai<?= $aiSummary ? '' : ' is-loading' ?>" id="cx-ai" data-url="<?= $aiUrl ?>" aria-live="polite">
-            <span class="cx-ai-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z" opacity=".7"/></svg></span>
+        <!-- is-ai: the AI look (glowing border, sparkles, word-by-word text); left off when the summary is the plain fallback -->
+        <section class="cx-ai<?= $aiSummary ? ($aiSummary['ai'] ? ' is-ai' : '') : ' is-loading is-ai' ?>" id="cx-ai" data-url="<?= $aiUrl ?>" aria-live="polite">
+            <span class="cx-ai-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path class="ai-twinkle" d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z" opacity=".7"/><path class="ai-twinkle is-late" d="M5 2.5l.6 1.7 1.7.6-1.7.6L5 7.1l-.6-1.7-1.7-.6 1.7-.6z" opacity=".8"/></svg></span>
             <div class="cx-ai-body">
                 <p class="cx-ai-label">This week <?= $churchId > 0 ? 'at ' . e($churchLabel) : 'across the parishes' ?>
                     <span class="cx-ai-range"><?= e($aiSummary['range'] ?? '') ?></span>
-                    <span class="cx-ai-badge"<?= $aiSummary && !$aiSummary['ai'] ? ' hidden' : '' ?>>AI summary</span></p>
-                <p class="cx-ai-text"><?= $aiSummary ? e($aiSummary['text']) : '<span class="cx-ai-skel"></span><span class="cx-ai-skel is-short"></span>' ?></p>
+                    <span class="cx-ai-badge"<?= $aiSummary && !$aiSummary['ai'] ? ' hidden' : '' ?>><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/></svg> AI summary</span></p>
+                <p class="cx-ai-text"><?= $aiSummary ? e($aiSummary['text']) : '<span class="cx-ai-thinking">AI is reading this week&rsquo;s calendar<span class="ai-dots"><i></i><i></i><i></i></span></span><span class="cx-ai-skel"></span><span class="cx-ai-skel is-short"></span>' ?></p>
                 <p class="cx-ai-note">Written by AI from this calendar. Please check exact times in the calendar below.</p>
             </div>
         </section>
@@ -625,15 +626,34 @@ include __DIR__ . '/includes/header.php';
 // "This week" summary: fetched after the page has loaded when it was not ready yet.
 (function () {
     var box = document.getElementById('cx-ai');
-    if (!box || !box.classList.contains('is-loading')) return;
+    if (!box) return;
+    var textEl = box.querySelector('.cx-ai-text');
+    // AI text appears word by word, as if being written (the words are all in the page; CSS only fades them in).
+    function reveal(text) {
+        textEl.textContent = '';
+        var words = text.split(/(\s+)/), step = Math.min(45, 1800 / Math.max(1, words.length / 2));
+        words.forEach(function (w, i) {
+            if (/^\s+$/.test(w)) { textEl.appendChild(document.createTextNode(w)); return; }
+            var s = document.createElement('span');
+            s.className = 'cx-ai-w';
+            s.style.animationDelay = Math.round(i / 2 * step) + 'ms';
+            s.textContent = w;
+            textEl.appendChild(s);
+        });
+    }
+    if (!box.classList.contains('is-loading')) {
+        if (box.classList.contains('is-ai')) reveal(textEl.textContent.trim());
+        return;
+    }
     fetch(box.dataset.url.replace(/&amp;/g, '&'), { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
         .then(function (d) {
             if (!d || !d.text) throw 0;
-            box.querySelector('.cx-ai-text').textContent = d.text;
             box.querySelector('.cx-ai-range').textContent = d.range || '';
             box.querySelector('.cx-ai-badge').hidden = !d.ai;
+            box.classList.toggle('is-ai', !!d.ai);
             box.classList.remove('is-loading');
+            if (d.ai) reveal(d.text); else textEl.textContent = d.text;
         })
         .catch(function () { box.hidden = true; });   // the calendar below still has everything
 })();

@@ -41,6 +41,7 @@ $dashboardLink = !empty($_SESSION['user_id']) ? ($dashboards[$_SESSION['role'] ?
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: 1 ?>">
     <?php require_once __DIR__ . '/theme.php'; theme_head(); ?>
+    <?php require_once __DIR__ . '/pwa.php'; pwa_head(); ?>
 </head>
 <body>
 <div class="topbar"></div>
