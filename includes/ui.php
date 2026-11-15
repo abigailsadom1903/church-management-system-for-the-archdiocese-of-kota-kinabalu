@@ -146,6 +146,15 @@ function render_decision_panel(array $o): void
             <textarea name="note" rows="2" maxlength="255" placeholder="e.g. Please re-upload a clearer copy of the birth certificate."><?= $h($o['note']) ?></textarea>
             <span class="dp-hint" role="alert" hidden>Please write a reason for the <?= $h($who) ?> before you <?= $h(strtolower($noLabel)) ?>.</span>
         </label>
+        <?php if (!empty($o['ai'])): /* AI writes the note: admin-ai.php, includes/admin_ai.php */ ?>
+            <div class="dp-ai" data-dp-ai data-kind="<?= $h($o['ai']['kind']) ?>" data-id="<?= (int)$o['id'] ?>" data-csrf="<?= $h($o['csrf']) ?>" data-url="<?= $h($o['ai']['url'] ?? 'admin-ai.php') ?>">
+                <span class="dp-ai-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path class="ai-twinkle" d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/></svg> Write it with AI</span>
+                <button type="button" class="dp-ai-chip" data-intent="approve">Approval note</button>
+                <button type="button" class="dp-ai-chip" data-intent="info">Ask for more info</button>
+                <button type="button" class="dp-ai-chip" data-intent="decline" title="Type the reason in a few words first; the AI turns it into a kind note"><?= $h($noLabel) ?> reason</button>
+                <small class="dp-ai-msg" role="status"></small>
+            </div>
+        <?php endif; ?>
 
         <div class="dp-actions">
             <?php if ($o['steps']): ?>
@@ -182,6 +191,44 @@ function render_decision_panel(array $o): void
             }
         }, true);
         note.addEventListener('input', function () { if (note.value.trim()) { hint.hidden = true; note.classList.remove('is-invalid'); } });
+    })();
+    // "Write it with AI": what the admin typed (if anything) is the gist; the AI's note replaces it for checking before saving.
+    (function () {
+        var box = document.querySelector('[data-dp-ai]');
+        if (!box) return;
+        var note = document.querySelector('#decision textarea[name=note]'), msg = box.querySelector('.dp-ai-msg'), chips = box.querySelectorAll('.dp-ai-chip');
+        var undo = null;
+        box.addEventListener('click', function (ev) {
+            var chip = ev.target.closest('.dp-ai-chip');
+            if (!chip) return;
+            if (chip.dataset.intent === 'decline' && !note.value.trim()) {
+                msg.className = 'dp-ai-msg is-err'; msg.textContent = 'Type the reason in a few words first (e.g. "birth certificate unclear"), then press it again.';
+                note.focus(); return;
+            }
+            var body = new FormData();
+            body.set('action', 'reply'); body.set('kind', box.dataset.kind); body.set('id', box.dataset.id);
+            body.set('intent', chip.dataset.intent); body.set('gist', note.value.trim()); body.set('csrf', box.dataset.csrf);
+            chips.forEach(function (c) { c.disabled = true; });
+            chip.classList.add('is-busy'); msg.className = 'dp-ai-msg'; msg.textContent = 'Writing…';
+            fetch(box.dataset.url, { method: 'POST', body: body, credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (!d.text) { msg.className = 'dp-ai-msg is-err'; msg.textContent = d.error || 'The AI could not write a note just now.'; return; }
+                    undo = note.value;
+                    note.value = d.text;
+                    note.dispatchEvent(new Event('input', { bubbles: true }));
+                    note.classList.remove('ai-filled'); void note.offsetWidth; note.classList.add('ai-filled');
+                    msg.className = 'dp-ai-msg is-ok';
+                    msg.innerHTML = 'Written by AI. Please read it and change anything before you save. ';
+                    if (undo) {
+                        var u = document.createElement('button'); u.type = 'button'; u.className = 'dp-ai-undo'; u.textContent = 'Undo';
+                        u.addEventListener('click', function () { note.value = undo; msg.textContent = ''; note.focus(); });
+                        msg.appendChild(u);
+                    }
+                })
+                .catch(function () { msg.className = 'dp-ai-msg is-err'; msg.textContent = 'The AI could not be reached. Please try again.'; })
+                .then(function () { chips.forEach(function (c) { c.disabled = false; }); chip.classList.remove('is-busy'); });
+        });
     })();
     </script>
     <?php

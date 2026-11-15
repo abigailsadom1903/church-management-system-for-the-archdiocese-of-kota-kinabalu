@@ -47,3 +47,4 @@ uploads/church_gallery/*
 !uploads/church_gallery/.gitkeep
 !uploads/church_gallery/.htaccess
 logs/calendar-summaries/
+logs/admin-ai/

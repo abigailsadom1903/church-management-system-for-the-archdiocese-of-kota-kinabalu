@@ -132,6 +132,7 @@ if ($id) {
                 'ref' => pc_ref($id), 'status' => $req['status'], 'badge' => [$stLabel, $stClass], 'note' => (string)$req['admin_note'],
                 'steps' => ['submitted' => 'Submitted', 'review' => 'Under Review'],
                 'approve' => ['given', 'Approve', 'Approved'], 'reject' => ['declined', 'Decline', 'Declined'], 'who' => 'parishioner', 'kind' => 'request',
+                'ai' => ['kind' => 'pastoral'],
             ]); ?>
         <?php endif; ?>
     </main>
@@ -199,6 +200,21 @@ include __DIR__ . '/includes/header.php';
         <?php endforeach; ?>
     </div>
 
+    <!-- AI briefing of this week's requests (admin-ai.php > includes/admin_ai.php); asked for when the button is pressed -->
+    <section class="cx-ai is-ai pm-ai" id="pm-ai" data-church="<?= $churchId ?>" data-csrf="<?= e($_SESSION['csrf']) ?>" aria-live="polite">
+        <span class="cx-ai-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path class="ai-twinkle" d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z" opacity=".7"/><path class="ai-twinkle is-late" d="M5 2.5l.6 1.7 1.7.6-1.7.6L5 7.1l-.6-1.7-1.7-.6 1.7-.6z" opacity=".8"/></svg></span>
+        <div class="cx-ai-body">
+            <p class="cx-ai-label">This week&rsquo;s requests <span class="cx-ai-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/></svg> AI briefing</span></p>
+            <div class="pm-ai-out" id="pm-ai-out">
+                <p class="cx-ai-text">Let the AI read this week&rsquo;s requests and tell you what needs attention first.</p>
+            </div>
+            <div class="pm-ai-foot">
+                <button type="button" class="ai-btn pm-ai-go" id="pm-ai-go"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path class="ai-twinkle" d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z"/></svg> <span>Summarise this week</span></button>
+                <small class="cx-ai-note">Only request numbers, services, statuses and dates are shared with the AI &mdash; never names, contact details or what people wrote.</small>
+            </div>
+        </div>
+    </section>
+
     <form method="get" class="sr-filter" role="search">
         <?php if ($isSuper): ?><input type="hidden" name="church" value="<?= $churchId ?>"><?php endif; ?>
         <select name="service" aria-label="Service" onchange="this.form.submit()">
@@ -247,4 +263,55 @@ include __DIR__ . '/includes/header.php';
         </div>
     <?php endif; ?>
 </main>
+<script>
+// "Summarise this week": the AI briefing appears word by word; request numbers become links to the requests.
+(function () {
+    var box = document.getElementById('pm-ai'), go = document.getElementById('pm-ai-go'), out = document.getElementById('pm-ai-out');
+    if (!box || !go) return;
+    var label = go.querySelector('span');
+    function words(el, text, start) {
+        var n = start || 0;
+        text.split(/(\s+)/).forEach(function (w) {
+            if (!w) return;
+            if (/^\s+$/.test(w)) { el.appendChild(document.createTextNode(w)); return; }
+            var m = /^(PC-\d{5})(.*)$/.exec(w), s;
+            if (m) { s = document.createElement('a'); s.href = 'pastoral-manage.php?id=' + parseInt(m[1].slice(3), 10); s.textContent = m[1]; }
+            else { s = document.createElement('span'); s.textContent = w; }
+            s.className = 'ai-w'; s.style.animationDelay = (n++ * 28) + 'ms';
+            el.appendChild(s);
+            if (m && m[2]) { var t = document.createElement('span'); t.className = 'ai-w'; t.style.animationDelay = (n * 28) + 'ms'; t.textContent = m[2]; el.appendChild(t); }
+        });
+        return n;
+    }
+    go.addEventListener('click', function () {
+        go.disabled = true; label.textContent = 'Reading the requests…';
+        out.innerHTML = '<p class="cx-ai-thinking">AI is reading this week&rsquo;s requests<span class="ai-dots"><i></i><i></i><i></i></span></p><span class="cx-ai-skel"></span><span class="cx-ai-skel is-short"></span>';
+        var body = new FormData();
+        body.set('action', 'week'); body.set('church', box.dataset.church); body.set('csrf', box.dataset.csrf);
+        fetch('admin-ai.php', { method: 'POST', body: body, credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) throw d.error;
+                out.innerHTML = '';
+                var h = document.createElement('p'); h.className = 'pm-ai-head'; out.appendChild(h);
+                var n = words(h, d.headline || '');
+                if (d.points && d.points.length) {
+                    var ul = document.createElement('ul'); ul.className = 'pm-ai-points'; out.appendChild(ul);
+                    d.points.forEach(function (p) { var li = document.createElement('li'); ul.appendChild(li); n = words(li, p, n); });
+                }
+                box.classList.toggle('is-ai', !!d.ai);
+                if (!d.ai) { var f = document.createElement('p'); f.className = 'cx-ai-note'; f.textContent = 'The AI is not available right now, so this is a plain count.'; out.appendChild(f); }
+                label.textContent = 'Summarise again';
+            })
+            .catch(function (err) {
+                out.innerHTML = '';
+                var p = document.createElement('p'); p.className = 'cx-ai-text pm-ai-err';
+                p.textContent = typeof err === 'string' ? err : 'The AI could not be reached. Please try again.';
+                out.appendChild(p);
+                label.textContent = 'Try again';
+            })
+            .then(function () { go.disabled = false; });
+    });
+})();
+</script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

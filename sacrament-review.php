@@ -236,6 +236,7 @@ if ($id) {
                 'ref' => sx_ref($id), 'status' => $app['status'], 'badge' => [$stLabel, $stClass], 'note' => (string)$app['admin_note'],
                 'steps' => ['submitted' => 'Submitted', 'verifying' => 'Document Verification', 'review' => 'Under Review'],
                 'approve' => ['approved', 'Approve', 'Approved'], 'reject' => ['rejected', 'Reject', 'Rejected'], 'who' => 'applicant', 'kind' => 'application',
+                'ai' => ['kind' => 'sacrament'],
             ]); ?>
         <?php endif; ?>
     </main>

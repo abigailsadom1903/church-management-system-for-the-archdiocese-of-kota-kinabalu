@@ -410,6 +410,7 @@ include __DIR__ . '/includes/header.php';
             </form>
             <?php $tabs(); ?>
             <?php if ($role === 'user'): ?>
+                <a class="cx-nearme" href="mass-finder.php"><?= ev_icon('pin', 15) ?> Masses near me</a>
                 <a class="cx-myreg" href="my-events.php"><?= ev_icon('check', 15) ?> My Registrations<?php if ($myRegCount): ?> <span class="cx-myreg-n"><?= $myRegCount ?></span><?php endif; ?></a>
             <?php endif; ?>
         </div>

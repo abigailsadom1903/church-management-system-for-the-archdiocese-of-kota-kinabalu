@@ -10,16 +10,74 @@
     "background_color": "#ffffff",
     "theme_color": "#5b2d82",
     "lang": "en",
-    "categories": ["lifestyle", "social", "education"],
+    "categories": [
+        "lifestyle",
+        "social",
+        "education"
+    ],
     "icons": [
-        { "src": "assets/images/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-        { "src": "assets/images/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-        { "src": "assets/images/app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+        {
+            "src": "assets/images/app/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "assets/images/app/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "assets/images/app/icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
     ],
     "shortcuts": [
-        { "name": "Church Calendar", "short_name": "Calendar", "url": "./events.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] },
-        { "name": "Sacraments", "url": "./sacraments.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] },
-        { "name": "My Registrations", "short_name": "My events", "url": "./my-events.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] },
-        { "name": "Ask AI", "url": "./assistant.php?source=app", "icons": [{ "src": "assets/images/app/icon-192.png", "sizes": "192x192" }] }
+        {
+            "name": "Masses near me",
+            "short_name": "Mass near me",
+            "url": "./mass-finder.php?source=app",
+            "icons": [
+                {
+                    "src": "assets/images/app/icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "Church Calendar",
+            "short_name": "Calendar",
+            "url": "./events.php?source=app",
+            "icons": [
+                {
+                    "src": "assets/images/app/icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "Sacraments",
+            "url": "./sacraments.php?source=app",
+            "icons": [
+                {
+                    "src": "assets/images/app/icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "My Registrations",
+            "short_name": "My events",
+            "url": "./my-events.php?source=app",
+            "icons": [
+                {
+                    "src": "assets/images/app/icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        }
     ]
 }
