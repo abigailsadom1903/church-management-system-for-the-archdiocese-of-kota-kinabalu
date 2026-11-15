@@ -1,6 +1,6 @@
 <?php
 // "Your account at a glance" on the Home page, shown only to signed-in parishioners (role "user").
-// Four cards (next event, catechesis progress, applications, donations) and a list of the latest status updates.
+// Four plain rows (next event, catechesis, applications, donations) and a list of the latest status updates.
 // Everything is inside a function so the home page's variables are never overwritten. Needs $pdo.
 
 function render_user_overview(PDO $pdo): void
@@ -95,66 +95,61 @@ function render_user_overview(PDO $pdo): void
     }
     $updates = array_slice($updates, 0, 3);
 
-    // One row per area, each ending in the next step to take ("cta").
+
+    // One plain row per area. The whole row is the link; "side" is a short note on the right.
     $rows = [];
     if ($next) {
         [$start, $end] = event_window($next, $next['event_date']);
-        $rows[] = ['href' => 'event.php?id=' . (int)$next['event_id'], 'icon' => 'calendar', 'tone' => 'sky', 'label' => 'Next up', 'main' => $next['title'],
-            'meta' => date('D, j M', strtotime($next['event_date'])) . ' · ' . event_time_text($next) . (count($events) > 1 ? ' · +' . (count($events) - 1) . ' more' : ''),
-            'pill' => ['violet', countdown_short($start, $end)], 'cta' => 'View event'];
+        $rows[] = ['href' => 'event.php?id=' . (int)$next['event_id'], 'icon' => 'calendar', 'label' => 'Upcoming event', 'main' => $next['title'],
+            'meta' => date('D, j M', strtotime($next['event_date'])) . ', ' . event_time_text($next) . (count($events) > 1 ? ' (and ' . (count($events) - 1) . ' more)' : ''),
+            'side' => countdown_short($start, $end)];
     } else {
-        $rows[] = ['href' => 'events.php', 'icon' => 'calendar', 'tone' => 'sky', 'label' => 'Next up', 'main' => "You're all caught up!",
-            'meta' => 'No events registered yet', 'cta' => 'Explore upcoming parish events'];
+        $rows[] = ['href' => 'events.php', 'icon' => 'calendar', 'label' => 'Upcoming event', 'main' => 'No events registered',
+            'meta' => 'See the parish calendar'];
     }
     if ($cat) {
-        $rows[] = ['href' => 'catechesis.php', 'icon' => 'cap', 'tone' => 'teal', 'label' => 'Your learning', 'main' => $cat['title'],
-            'meta' => (int)$cat['attendance'] . ' of ' . (int)$cat['total_sessions'] . ' lessons' . ($cat['status'] === 'completed' ? '' : ' · next lesson ' . date('j M', strtotime(cat_next_lesson($cat)))),
-            'pill' => [$cat['status'] === 'completed' ? 'ok' : 'muted', $catPct . '%'], 'pct' => $catPct, 'cta' => 'View my progress'];
+        $rows[] = ['href' => 'catechesis.php', 'icon' => 'cap', 'label' => 'Catechesis', 'main' => $cat['title'],
+            'meta' => (int)$cat['attendance'] . ' of ' . (int)$cat['total_sessions'] . ' lessons attended' . ($cat['status'] === 'completed' ? ', completed' : ', next lesson ' . date('j M', strtotime(cat_next_lesson($cat)))),
+            'pct' => $catPct];
     } else {
-        $rows[] = ['href' => 'catechesis.php', 'icon' => 'cap', 'tone' => 'teal', 'label' => 'Your learning', 'main' => 'Not enrolled yet',
-            'meta' => 'Faith formation for every age', 'cta' => 'Browse programmes'];
+        $rows[] = ['href' => 'catechesis.php', 'icon' => 'cap', 'label' => 'Catechesis', 'main' => 'Not enrolled',
+            'meta' => 'See the programmes on offer'];
     }
-    $appParts = array_filter([$appCounts['ok'] ? $appCounts['ok'] . ' approved' : '', $appCounts['pending'] ? $appCounts['pending'] . ' in progress' : '', $appCounts['urgent'] ? $appCounts['urgent'] . ' rejected' : '']);
-    $rows[] = ['href' => 'sacraments.php', 'icon' => 'book', 'tone' => 'purple', 'label' => 'Applications', 'main' => number_format(count($sac) + count($pas)) . ' sent',
-        'meta' => $appParts ? implode(' · ', $appParts) : 'Sacraments & pastoral care',
-        'pill' => $appCounts['pending'] ? ['pending', $appCounts['pending'] . ' in progress'] : null,
-        'cta' => ($sac || $pas) ? 'Manage applications' : 'Apply for a sacrament'];
-    $donParts = array_filter([$donCounts['approved'] ? $donCounts['approved'] . ' approved' : '', $donCounts['pending'] ? $donCounts['pending'] . ' pending' : '', $donCounts['rejected'] ? $donCounts['rejected'] . ' rejected' : '']);
-    $rows[] = ['href' => 'donations.php', 'icon' => 'heart', 'tone' => 'green', 'label' => 'Giving ' . date('Y'), 'main' => 'RM ' . number_format($donYear, $donYear == floor($donYear) ? 0 : 2) . ' approved',
-        'meta' => $donParts ? implode(' · ', $donParts) : 'No donations yet',
-        'pill' => $donCounts['pending'] ? ['pending', $donCounts['pending'] . ' pending'] : null,
-        'cta' => $dons ? 'Give again' : 'Make a donation'];
+    $appParts = array_filter([$appCounts['ok'] ? $appCounts['ok'] . ' approved' : '', $appCounts['pending'] ? $appCounts['pending'] . ' in progress' : '', $appCounts['urgent'] ? $appCounts['urgent'] . ' not approved' : '']);
+    $appTotal = count($sac) + count($pas);
+    $rows[] = ['href' => 'sacraments.php', 'icon' => 'book', 'label' => 'Applications', 'main' => $appTotal ? $appTotal . ($appTotal === 1 ? ' application' : ' applications') : 'None sent',
+        'meta' => $appParts ? ucfirst(implode(', ', $appParts)) : 'Sacraments and pastoral care'];
+    $donParts = array_filter([$donCounts['pending'] ? $donCounts['pending'] . ' waiting for confirmation' : '', $donCounts['rejected'] ? $donCounts['rejected'] . ' not accepted' : '']);
+    $rows[] = ['href' => 'donations.php', 'icon' => 'heart', 'label' => 'Donations in ' . date('Y'), 'main' => 'RM ' . number_format($donYear, $donYear == floor($donYear) ? 0 : 2),
+        'meta' => $donParts ? ucfirst(implode(', ', $donParts)) : ($dons ? 'Thank you for your giving' : 'No donations yet')];
+
+    // status word colour for recent updates
+    $toneOf = ['ok' => 'is-ok', 'pending' => 'is-wait', 'urgent' => 'is-no', 'muted' => 'is-muted'];
     ?>
     <aside class="uo" aria-labelledby="uo-title">
         <div class="uo-head">
             <h2 id="uo-title">Overview</h2>
-            <a href="profile.php">Profile &rarr;</a>
+            <a href="profile.php">My profile</a>
         </div>
         <div class="uo-box" tabindex="0" role="region" aria-label="Overview of my account (scrollable)">
         <?php if ($alert): ?>
             <a class="uo-alert" href="<?= $h($alert['href']) ?>">
-                <span class="uo-alert-ico" aria-hidden="true">!</span>
-                <span class="uo-text">
-                    <span class="uo-label">Action needed</span>
-                    <span class="uo-title"><?= $h($alert['title']) ?> was <?= $h(strtolower($alert['status'])) ?></span>
-                    <?php if (!empty($alert['note'])): ?><span class="uo-meta">Reason: <?= $h($alert['note']) ?></span><?php endif; ?>
-                    <span class="uo-cta">View details &rarr;</span>
-                </span>
+                Your <?= $h($alert['title']) ?> was <?= $h(strtolower($alert['status'])) ?>.
+                <?php if (!empty($alert['note'])): ?><span class="uo-meta">Reason given: <?= $h($alert['note']) ?></span><?php endif; ?>
             </a>
         <?php endif; ?>
         <ul class="uo-list">
             <?php foreach ($rows as $r): ?>
                 <li>
                     <a href="<?= $h($r['href']) ?>">
-                        <span class="ao-ico tone-<?= $r['tone'] ?>"><?= dash_icon($r['icon'], 16) ?></span>
+                        <span class="uo-ico" aria-hidden="true"><?= dash_icon($r['icon'], 17) ?></span>
                         <span class="uo-text">
                             <span class="uo-label"><?= $h($r['label']) ?></span>
                             <span class="uo-title"><?= $h($r['main']) ?></span>
                             <?php if (isset($r['pct'])): ?><span class="uo-bar" role="progressbar" aria-valuenow="<?= $r['pct'] ?>" aria-valuemin="0" aria-valuemax="100" aria-label="Catechesis progress"><span style="width: <?= $r['pct'] ?>%"></span></span><?php endif; ?>
                             <span class="uo-meta"><?= $h($r['meta']) ?></span>
-                            <span class="uo-cta"><?= $h($r['cta']) ?> &rarr;</span>
                         </span>
-                        <?php if (!empty($r['pill'])): ?><span class="ao-pill pill-<?= $r['pill'][0] ?>"><?= $h($r['pill'][1]) ?></span><?php endif; ?>
+                        <?php if (!empty($r['side'])): ?><span class="uo-side"><?= $h($r['side']) ?></span><?php endif; ?>
                     </a>
                 </li>
             <?php endforeach; ?>
@@ -168,9 +163,9 @@ function render_user_overview(PDO $pdo): void
                         <a href="<?= $h($u['href']) ?>">
                             <span class="uo-text">
                                 <span class="uo-title"><?= $h($u['title']) ?></span>
-                                <span class="uo-meta"><?= $h($u['ref']) ?> · <?= $h($fmtDate($u['at'])) ?><?php if (!empty($u['note'])): ?> · <?= $h($u['note']) ?><?php endif; ?></span>
+                                <span class="uo-meta"><?= $h($u['ref']) ?>, <?= $h($fmtDate($u['at'])) ?></span>
                             </span>
-                            <span class="ao-pill pill-<?= $u['pill'] ?>"><?= $h($u['status']) ?></span>
+                            <span class="uo-status <?= $toneOf[$u['pill']] ?? 'is-muted' ?>"><?= $h($u['status']) ?></span>
                         </a>
                     </li>
                 <?php endforeach; ?>

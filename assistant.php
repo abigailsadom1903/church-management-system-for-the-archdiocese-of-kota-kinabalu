@@ -24,12 +24,25 @@ $chipIcons = [
     'hand'     => '<path d="M11 14h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 16"/><path d="m7 20 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 15 6 6"/>',
     'chat'     => '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
 ];
+$chipIcons['bed'] = '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>';
+// question asked => [icon, card title, line under it]
 $chipInfo = [
-    'Find Mass Times'              => ['calendar', 'Weekend and weekday Masses near you'],
-    'Request a Prayer'             => ['heart', 'Send a prayer intention to your parish'],
-    'How to register for Baptism?' => ['drop', 'Steps, documents and dates'],
-    'Support for Sick Visit'       => ['hand', 'Ask a priest to visit the sick'],
+    'Find Mass Times'              => ['calendar', 'Find Mass times', 'Weekend and weekday Masses near you'],
+    'Request a Prayer'             => ['heart', 'Request a prayer', 'Send a prayer intention to your church'],
+    'How to register for Baptism?' => ['drop', 'Register for Baptism', 'Steps, documents and dates'],
+    'Support for Sick Visit'       => ['bed', 'Arrange a sick visit', 'Ask a priest to visit the sick'],
 ];
+
+// The signed-in person's own church, shown in the chat header.
+$myChurch = '';
+$role = $_SESSION['role'] ?? '';
+if (in_array($role, ['user', 'church_admin'], true)) {
+    $st = $pdo->prepare($role === 'user'
+        ? 'SELECT c.church_name FROM user u JOIN church_info c ON c.church_info_id = u.church_id WHERE u.user_id = ?'
+        : "SELECT c.church_name FROM admin a JOIN church_info c ON c.church_info_id = a.church_id WHERE a.admin_id = ? AND a.admin_role = 'church_admin'");
+    $st->execute([(int)$_SESSION['user_id']]);
+    $myChurch = (string)$st->fetchColumn();
+}
 $svg = fn(string $paths, int $size = 18) => '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $paths . '</svg>';
 // the assistant's face: a gold robot on the purple badge
 $botIcon = '<svg width="%1$d" height="%1$d" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
@@ -42,34 +55,35 @@ $pageTitle = 'Intelligent Church Assistant';
 $activeNav = 'services';
 include __DIR__ . '/includes/header.php';
 ?>
-<main class="sx-page as-page">
-    <?php back_button('index.php#services', 'Back to Services'); ?>
+<main class="sx-page sx-sacr as-page">
+    <section class="as-hero">
+        <?php back_button('index.php#services', 'Back to Services'); ?>
+        <span class="as-eyebrow">Ask anything &middot; Any time of day</span>
+        <h1>Church Assistant</h1>
+        <p>Quick answers about Mass times, sacraments, events and your own requests, plus questions about the faith.</p>
+    </section>
 
-    <header class="page-heading">
-        <h1>Intelligent Church Assistant</h1>
-        <p>Quick answers about your parish, any time of day.</p>
-    </header>
-
+    <div class="sx-band as-band">
     <section class="as-chat" aria-label="Chat with the assistant">
         <header class="as-head">
-            <span class="as-avatar is-head"><?= sprintf($botIcon, 24) ?></span>
+            <span class="as-avatar is-head"><?= sprintf($botIcon, 22) ?></span>
             <div class="as-head-text">
                 <h2>Church Assistant</h2>
-                <p><i class="as-dot" aria-hidden="true"></i> Online &middot; parish help and general questions</p>
+                <p><i class="as-dot" aria-hidden="true"></i> Online<?= $myChurch !== '' ? ' &middot; ' . e($myChurch) : ' &middot; church help and general questions' ?></p>
             </div>
-            <button type="button" class="as-clear" id="as-clear" title="Clear this chat"><?= $svg('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', 15) ?><span>Clear</span></button>
+            <button type="button" class="as-clear" id="as-clear" title="Start a new chat"><?= $svg('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>', 14) ?><span>New chat</span></button>
         </header>
 
         <div class="as-log" id="as-log" role="log" aria-live="polite" tabindex="0">
             <div class="as-welcome" id="as-empty">
-                <span class="as-avatar is-hero"><?= sprintf($botIcon, 42) ?></span>
-                <h2>Peace be with you<?= $firstName !== '' ? ', ' . e($firstName) : '' ?>!</h2>
-                <p>I can help with Mass times, sacraments, events, donations and your own requests, and answer questions about the faith or anything else you are curious about. Pick a topic or ask me anything.</p>
+                <span class="as-hero-ring"><span class="as-avatar is-hero"><?= sprintf($botIcon, 26) ?></span></span>
+                <h2>Peace be with you<?= $firstName !== '' ? ', ' . e($firstName) : '' ?></h2>
+                <p>I can help with Mass times, sacraments, events, donations and your own requests, and answer questions about the faith. Pick a topic or ask me anything.</p>
                 <div class="as-suggest" role="group" aria-label="Suggested questions">
-                    <?php foreach (ASSISTANT_CHIPS as $chip): [$ico, $hint] = $chipInfo[$chip] ?? ['chat', 'Ask the assistant']; ?>
+                    <?php foreach (ASSISTANT_CHIPS as $chip): [$ico, $title, $hint] = $chipInfo[$chip] ?? ['chat', $chip, 'Ask the assistant']; ?>
                         <button type="button" class="as-card" data-ask="<?= e($chip) ?>">
                             <span class="as-card-ico"><?= $svg($chipIcons[$ico]) ?></span>
-                            <span class="as-card-text"><b><?= e($chip) ?></b><small><?= e($hint) ?></small></span>
+                            <span class="as-card-text"><b><?= e($title) ?></b><small><?= e($hint) ?></small></span>
                         </button>
                     <?php endforeach; ?>
                 </div>
@@ -85,7 +99,8 @@ include __DIR__ . '/includes/header.php';
             <button type="submit" class="as-send" id="as-send" aria-label="Send"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21.5 12.6a.75.75 0 0 0 0-1.38L3.4 3.4a.75.75 0 0 0-1.05.86l1.7 6.1a.75.75 0 0 0 .6.54L13 12l-8.35 1.1a.75.75 0 0 0-.6.54l-1.7 6.1a.75.75 0 0 0 1.05.66Z"/></svg></button>
         </form>
     </section>
-    <p class="as-note">Parish details come from this portal's own information; other answers are general information and may contain mistakes. For anything urgent, please call the parish office.</p>
+    <p class="as-note">Church details come from this portal's own information; other answers are general information and may contain mistakes. For anything urgent, please call the church office.</p>
+    </div>
 </main>
 <script>
 (function () {
@@ -196,7 +211,7 @@ include __DIR__ . '/includes/header.php';
     form.addEventListener('submit', function (ev) { ev.preventDefault(); ask(input.value); });
     document.querySelectorAll('[data-ask]').forEach(function (c) { c.addEventListener('click', function () { ask(c.dataset.ask); }); });
     document.getElementById('as-clear').addEventListener('click', function () {
-        if (!history.length || !confirm('Clear this chat? This cannot be undone.')) return;
+        if (!history.length || !confirm('Start a new chat? This conversation will be cleared.')) return;
         history = []; save();
         log.querySelectorAll('.as-row').forEach(function (r) { r.remove(); });
         started(false);

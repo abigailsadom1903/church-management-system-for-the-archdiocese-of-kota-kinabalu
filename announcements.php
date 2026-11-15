@@ -168,6 +168,14 @@ if ($c) {
 }
 $photoUrl = $c ? church_photo_url($c['church_photo']) : null;
 
+// Counts for the two tabs (all of this church's bulletins, whatever the filters).
+$bulletinCount = 0;
+if ($c) {
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM bulletins WHERE church_id = ?');
+    $stmt->execute([$selectedId]);
+    $bulletinCount = (int)$stmt->fetchColumn();
+}
+
 /** One announcement card; admins also get pin / edit / delete controls. */
 function render_announcement(array $a, bool $canManage, string $csrf): void
 {
@@ -214,66 +222,83 @@ $pageTitle = 'Announcement & Bulletin';
 $activeNav = 'services';
 include __DIR__ . '/includes/header.php';
 ?>
-<main class="ann-page">
-    <?php back_button('index.php#services', 'Back to Services'); ?>
-    <header class="page-heading">
-        <h1>Announcement &amp; Bulletin</h1>
-        <p>News, notices and weekly bulletins from every parish.</p>
-    </header>
+<main class="dn-page an-page">
+    <section class="dn-hero">
+        <div class="dn-wrap">
+            <?php back_button('index.php#services', 'Back to Services'); ?>
+            <div class="dn-hero-row<?= $c ? '' : ' no-photo' ?>">
+                <div class="dn-hero-text">
+                    <span class="dn-eyebrow">Parish news &middot; Notices &amp; bulletins</span>
+                    <h1>Announcement &amp; Bulletin</h1>
+                    <p>News, notices and weekly bulletins from every parish, all in one place.</p>
+                    <?php if ($c): ?>
+                        <form method="get" action="announcements.php" class="dn-church" id="church-form">
+                            <input type="hidden" name="tab" value="<?= e($tab) ?>">
+                            <label for="church">Showing news for</label>
+                            <div class="dn-church-select">
+                                <?= ann_icon('megaphone', 15) ?>
+                                <select id="church" name="church" data-church-picker>
+                                    <?php foreach ($churches as $ch): ?>
+                                        <option value="<?= (int)$ch['church_info_id'] ?>" data-name="<?= e($ch['church_name']) ?>" data-loc="<?= e($ch['church_location']) ?>" data-photo="<?= e((string)church_photo_url($ch['church_photo'])) ?>" <?= (int)$ch['church_info_id'] === $selectedId ? 'selected' : '' ?>><?= e($ch['church_name'] . ($ch['church_location'] ? ', ' . $ch['church_location'] : '')) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <noscript><button type="submit" class="btn-primary">Show</button></noscript>
+                        </form>
+                    <?php endif; ?>
+                </div>
+                <?php if ($c): ?>
+                    <figure class="dn-hero-photo">
+                        <?php if ($photoUrl): ?>
+                            <img src="<?= e($photoUrl) ?>" alt="<?= e($c['church_name']) ?>">
+                        <?php else: ?>
+                            <span class="dn-hero-ph"><svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 7 4 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9l4-2"/><path d="M14 22v-4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v4"/><path d="M18 22V5l-6-3-6 3v17"/><path d="M12 7v5"/><path d="M10 9h4"/></svg></span>
+                        <?php endif; ?>
+                        <figcaption>
+                            <span class="dn-hero-pin"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>
+                            <span><b><?= e($c['church_name']) ?></b><?php if ($c['church_location']): ?><small><?= e($c['church_location']) ?></small><?php endif; ?></span>
+                        </figcaption>
+                    </figure>
+                <?php endif; ?>
+            </div>
+        </div>
+    </section>
 
+    <div class="dn-band">
+    <div class="dn-wrap">
     <?php if ($adminFlash): ?><div class="alert success info-alert" role="status"><?= e($adminFlash) ?></div><?php endif; ?>
     <?php if ($actionError): ?><div class="alert info-alert" role="alert"><?= e($actionError) ?></div><?php endif; ?>
 
 <?php if (!$c): ?>
     <p class="dir-empty">No churches have been added yet.</p>
 <?php else: ?>
-    <?php if ($canManage): ?>
-        <p class="admin-badge"><?= ($_SESSION['role'] ?? '') === 'super_admin' ? 'Super Admin' : 'Church Admin' ?> &middot; you can manage this church</p>
-    <?php endif; ?>
-
-    <section class="info-hero">
-        <div class="hero-photo">
-            <?php if ($photoUrl): ?>
-                <img src="<?= e($photoUrl) ?>" alt="<?= e($c['church_name']) ?>">
-            <?php else: ?>
-                <div class="info-photo-fallback" aria-hidden="true">
-                    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="m18 7 4 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9l4-2"/><path d="M14 22v-4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v4"/><path d="M18 22V5l-6-3-6 3v17"/><path d="M12 7v5"/><path d="M10 9h4"/></svg>
-                </div>
-            <?php endif; ?>
-        </div>
-        <h2><?= e($c['church_name']) ?></h2>
-        <p class="info-town"><?= e($c['church_location']) ?></p>
-    </section>
-
-    <form method="get" action="announcements.php" class="info-select" id="church-form">
-        <input type="hidden" name="tab" value="<?= e($tab) ?>">
-        <label for="church">Select Church</label>
-        <div class="select-wrap">
-            <select id="church" name="church">
-                <?php foreach ($churches as $ch): ?>
-                    <option value="<?= (int)$ch['church_info_id'] ?>" <?= (int)$ch['church_info_id'] === $selectedId ? 'selected' : '' ?>><?= e($ch['church_name']) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <noscript><button type="submit" class="btn-primary">Show</button></noscript>
-        </div>
-    </form>
-
-    <nav class="seg-tabs" aria-label="Announcements or bulletins">
-        <a href="announcements.php?church=<?= $selectedId ?>" class="<?= $tab === 'announcements' ? 'is-active' : '' ?>" <?= $tab === 'announcements' ? 'aria-current="page"' : '' ?>>Announcements</a>
-        <a href="announcements.php?church=<?= $selectedId ?>&amp;tab=bulletins" class="<?= $tab === 'bulletins' ? 'is-active' : '' ?>" <?= $tab === 'bulletins' ? 'aria-current="page"' : '' ?>>Digital Bulletins</a>
-    </nav>
-
-    <div class="ann-layout<?= $tab === 'bulletins' ? ' is-wide' : '' ?>">
+    <div class="ann-layout an-layout<?= $tab === 'bulletins' ? ' is-wide' : '' ?>">
         <section class="ann-main">
+            <div class="an-bar">
+                <nav class="an-tabs" aria-label="Announcements or bulletins">
+                    <a href="announcements.php?church=<?= $selectedId ?>" class="<?= $tab === 'announcements' ? 'is-on' : '' ?>" <?= $tab === 'announcements' ? 'aria-current="page"' : '' ?>><?= ann_icon('megaphone', 14) ?> Announcements <span><?= count($active) ?></span></a>
+                    <a href="announcements.php?church=<?= $selectedId ?>&amp;tab=bulletins" class="<?= $tab === 'bulletins' ? 'is-on' : '' ?>" <?= $tab === 'bulletins' ? 'aria-current="page"' : '' ?>><?= ann_icon('file', 14) ?> Digital Bulletins <span><?= $bulletinCount ?></span></a>
+                </nav>
+                <span class="an-bar-church"><?php if ($canManage): ?><b class="an-admin"><?= ($_SESSION['role'] ?? '') === 'super_admin' ? 'Super Admin' : 'Church Admin' ?></b> <?php endif; ?><?= e($c['church_name']) ?></span>
+            </div>
+
             <?php if ($tab === 'announcements'): ?>
-                <div class="ann-headrow">
-                    <h2 class="ann-heading">Active Announcements</h2>
-                    <?php if ($canManage): ?>
+                <?php if ($canManage): ?>
+                    <div class="ann-headrow">
+                        <h2 class="ann-heading">Active Announcements</h2>
                         <a class="btn-new" href="announcement-form.php?church=<?= $selectedId ?>"><?= ann_icon('plus', 16) ?> New Announcement</a>
-                    <?php endif; ?>
-                </div>
+                    </div>
+                <?php endif; ?>
                 <?php if (!$active): ?>
-                    <p class="ann-empty">There are no active announcements for <?= e($c['church_name']) ?> right now.</p>
+                    <div class="an-quiet">
+                        <span class="an-empty-ico"><span><?= ann_icon('bell', 20) ?></span></span>
+                        <h2>All quiet for now</h2>
+                        <p>There are no active announcements for <?= e($c['church_name']) ?> right now. New notices will appear here as soon as they are posted.</p>
+                        <div class="an-empty-acts">
+                            <a class="an-btn is-solid" href="#sub-email" data-focus="sub-email"><?= ann_icon('bell', 14) ?> Notify me</a>
+                            <a class="an-btn is-soft" href="events.php"><?= ann_icon('calendar', 14) ?> See the church calendar</a>
+                        </div>
+                    </div>
                 <?php endif; ?>
                 <?php foreach ($active as $a) render_announcement($a, $canManage, $_SESSION['csrf']); ?>
 
@@ -402,9 +427,15 @@ include __DIR__ . '/includes/header.php';
         </section>
 
         <?php if ($tab === 'announcements'): ?>
-        <aside class="subscribe-card" id="stay-updated">
-            <h2>Stay Updated</h2>
-            <p>Receive the latest notifications and liturgical updates directly in your inbox.</p>
+        <aside class="subscribe-card an-subcard" id="stay-updated">
+            <span class="an-sub-deco" aria-hidden="true"><?= ann_icon('mail', 150) ?></span>
+            <span class="an-sub-k">Stay updated</span>
+            <h2>Parish news, straight to your inbox</h2>
+            <ul class="an-sub-list">
+                <li><?= ann_icon('check', 13) ?> New announcements and notices</li>
+                <li><?= ann_icon('check', 13) ?> Liturgical updates</li>
+                <li><?= ann_icon('check', 13) ?> The digital bulletin when it&rsquo;s out</li>
+            </ul>
 
             <?php if ($flash): ?><div class="sub-msg ok" role="status"><?= e($flash) ?></div><?php endif; ?>
             <?php if ($subError): ?><div class="sub-msg bad" role="alert"><?= e($subError) ?></div><?php endif; ?>
@@ -413,18 +444,32 @@ include __DIR__ . '/includes/header.php';
                 <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
                 <input type="hidden" name="church" value="<?= $selectedId ?>">
                 <input type="text" name="company" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true">
-                <label for="sub-email">Email Address</label>
-                <input type="email" id="sub-email" name="email" placeholder="name@example.com" maxlength="100" autocomplete="email" value="<?= e($subEmail) ?>" required>
+                <label for="sub-email">Email address</label>
+                <div class="an-sub-input"><?= ann_icon('mail', 15) ?><input type="email" id="sub-email" name="email" placeholder="name@example.com" maxlength="100" autocomplete="email" value="<?= e($subEmail) ?>" required></div>
                 <button type="submit">Subscribe</button>
             </form>
+            <small class="an-sub-note">You can unsubscribe at any time.</small>
         </aside>
         <?php endif; ?>
     </div>
 <?php endif; ?>
+    </div>
+    </div>
 </main>
 <script>
 document.getElementById('church')?.addEventListener('change', function () {
     document.getElementById('church-form').submit();
+});
+
+// "Notify me": jump to the subscribe box and put the cursor in it.
+document.querySelectorAll('[data-focus]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+        var el = document.getElementById(a.dataset.focus);
+        if (!el) return;
+        ev.preventDefault();
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.focus({ preventScroll: true });
+    });
 });
 
 // "Read More": expand a long announcement in place.

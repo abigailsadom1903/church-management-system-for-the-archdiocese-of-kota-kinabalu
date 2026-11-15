@@ -42,7 +42,7 @@ unset($_SESSION['event_flash']);
 // Has this public user already registered? (Registrations are made on event-register.php.)
 $myReg = null;
 if (($_SESSION['role'] ?? '') === 'user' && !empty($_SESSION['user_id'])) {
-    $r = $pdo->prepare('SELECT people FROM event_registrations WHERE event_id = ? AND user_id = ?');
+    $r = $pdo->prepare('SELECT name, email, phone, people, created_at FROM event_registrations WHERE event_id = ? AND user_id = ?');
     $r->execute([$id, (int)$_SESSION['user_id']]);
     $myReg = $r->fetch() ?: null;
 }
@@ -68,11 +68,11 @@ include __DIR__ . '/includes/header.php';
             <span class="ev-tag <?= event_type_class($ev['event_type']) ?>"><?= e($ev['event_type']) ?></span>
             <h1><?= e($ev['title']) ?></h1>
             <ul class="event-facts">
-                <li><?= ev_icon('calendar', 17) ?> <span><?= e(date('l, j F Y', strtotime($date))) ?><?= $isPast ? ' <em>(past)</em>' : '' ?></span></li>
-                <li><?= ev_icon('clock', 17) ?> <span><?= e(event_time_text($ev)) ?></span></li>
-                <?php if ($ev['location']): ?><li><?= ev_icon('pin', 17) ?> <span><?= e($ev['location']) ?></span></li><?php endif; ?>
-                <li><?= ev_icon('church', 17) ?> <span><a href="church-information.php?church=<?= (int)$ev['church_id'] ?>"><?= e($ev['church_name']) ?></a> &middot; <?= e($ev['church_location']) ?></span></li>
-                <?php if ($ev['repeat_weekly']): ?><li><?= ev_icon('repeat', 17) ?> <span>Every <?= e(date('l', strtotime($ev['event_date']))) ?><?= $ev['repeat_until'] ? ' until ' . e(date('j F Y', strtotime($ev['repeat_until']))) : '' ?></span></li><?php endif; ?>
+                <li><i class="ef-ico"><?= ev_icon('calendar', 15) ?></i> <span><?= e(date('l, j F Y', strtotime($date))) ?><?= $isPast ? ' <em>(past)</em>' : '' ?></span></li>
+                <li><i class="ef-ico"><?= ev_icon('clock', 15) ?></i> <span><?= e(event_time_text($ev)) ?></span></li>
+                <?php if ($ev['location']): ?><li><i class="ef-ico"><?= ev_icon('pin', 15) ?></i> <span><?= e($ev['location']) ?></span></li><?php endif; ?>
+                <li><i class="ef-ico"><?= ev_icon('church', 15) ?></i> <span><a href="church-information.php?church=<?= (int)$ev['church_id'] ?>"><?= e($ev['church_name']) ?></a> &middot; <?= e($ev['church_location']) ?></span></li>
+                <?php if ($ev['repeat_weekly']): ?><li><i class="ef-ico"><?= ev_icon('repeat', 15) ?></i> <span>Every <?= e(date('l', strtotime($ev['event_date']))) ?><?= $ev['repeat_until'] ? ' until ' . e(date('j F Y', strtotime($ev['repeat_until']))) : '' ?></span></li><?php endif; ?>
             </ul>
             <?php if (time() < $endTs): ?>
                 <div class="ev-countdown<?= $secs > 0 ? '' : ' is-live' ?>" data-start="<?= $startTs ?>" data-end="<?= $endTs ?>" data-now="<?= time() ?>" role="timer" aria-live="off">
@@ -98,18 +98,37 @@ include __DIR__ . '/includes/header.php';
 
     <?php if ($ev['registration_required'] && $oneOff): ?>
         <section class="event-register" id="register">
-            <h2>Register</h2>
-            <p class="event-count"><?= ev_icon('users', 15) ?> <?= people_label((int)$ev['people']) ?> registered<?= $left !== null ? ' &middot; ' . ($left > 0 ? "$left " . ($left === 1 ? 'place' : 'places') . ' left' : '<strong>full</strong>') : '' ?></p>
+            <div class="er-head">
+                <h2>Register</h2>
+                <p class="event-count"><?= ev_icon('users', 14) ?> <?= people_label((int)$ev['people']) ?> registered<?= $left !== null ? ' &middot; ' . ($left > 0 ? "$left " . ($left === 1 ? 'place' : 'places') . ' left' : '<strong>full</strong>') : '' ?></p>
+            </div>
 
             <?php if ($myReg): ?>
-                <p class="event-mine"><?= ev_icon('check', 16) ?> You are registered<?= (int)$myReg['people'] > 1 ? ' (' . people_label((int)$myReg['people']) . ')' : '' ?>.</p>
-                <div class="profile-actions"><a class="btn-save" href="my-events.php">View my registrations</a></div>
+                <div class="er-banner is-ok">
+                    <span class="er-banner-ico"><?= ev_icon('check', 15) ?></span>
+                    <p>You are registered<?= (int)$myReg['people'] > 1 ? ' (' . people_label((int)$myReg['people']) . ')' : '' ?>.</p>
+                    <a class="er-btn" href="my-events.php">View my registrations <?= ev_icon('arrow', 14) ?></a>
+                </div>
+                <details class="st-details er-details">
+                    <summary><span class="st-details-ico"><?= ev_icon('file', 16) ?></span>View what you submitted<span class="st-details-chev"><?= ev_icon('down', 16) ?></span></summary>
+                    <dl class="er-sub">
+                        <div><dt><?= ev_icon('user', 14) ?> Name</dt><dd><?= e($myReg['name']) ?></dd></div>
+                        <div><dt><?= ev_icon('mail', 14) ?> Email</dt><dd><?= $myReg['email'] ? e($myReg['email']) : '&mdash;' ?></dd></div>
+                        <div><dt><?= ev_icon('phone', 14) ?> Phone</dt><dd><?= $myReg['phone'] ? e($myReg['phone']) : '&mdash;' ?></dd></div>
+                        <div><dt><?= ev_icon('users', 14) ?> People</dt><dd><?= e(people_label((int)$myReg['people'])) ?></dd></div>
+                        <div><dt><?= ev_icon('calendar', 14) ?> Registered on</dt><dd><?= e(date('j M Y, g:i A', strtotime($myReg['created_at']))) ?></dd></div>
+                    </dl>
+                </details>
             <?php elseif ($isPast): ?>
-                <p class="ann-empty">Registration has closed because this event has already taken place.</p>
+                <div class="er-banner is-muted"><span class="er-banner-ico"><?= ev_icon('clock', 15) ?></span><p>Registration has closed because this event has already taken place.</p></div>
             <?php elseif ($isFull): ?>
-                <p class="ann-empty">This event is full. Please contact the parish office if you would still like to attend.</p>
+                <div class="er-banner is-no"><span class="er-banner-ico"><?= ev_icon('users', 15) ?></span><p>This event is full. Please contact the parish office if you would still like to attend.</p></div>
             <?php else: ?>
-                <div class="profile-actions"><a class="btn-save" href="event-register.php?id=<?= $id ?>">Register for this event</a></div>
+                <div class="er-banner">
+                    <span class="er-banner-ico"><?= ev_icon('calendar', 15) ?></span>
+                    <p>Registration is open<?= $left !== null ? ' &mdash; ' . $left . ' ' . ($left === 1 ? 'place' : 'places') . ' left' : '' ?>.</p>
+                    <a class="er-btn" href="event-register.php?id=<?= $id ?>">Register for this event <?= ev_icon('arrow', 14) ?></a>
+                </div>
             <?php endif; ?>
         </section>
     <?php endif; ?>

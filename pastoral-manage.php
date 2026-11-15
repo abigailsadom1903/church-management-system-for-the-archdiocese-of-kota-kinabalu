@@ -96,7 +96,7 @@ if ($id) {
                     <h2><?= e($s['title'] ?? 'Details') ?></h2>
                     <dl>
                         <?php foreach ($s['fields'] as $fd): $v = sx_show($fd, (string)($details[$fd['k']] ?? '')); ?>
-                            <dt><?= e($fd['l']) ?>:</dt><dd><?= $v !== '' ? nl2br(e($v)) : '<span class="muted">&mdash;</span>' ?></dd>
+                            <dt><?= e($fd['l']) ?>:</dt><dd><?= $v !== '' ? nl2br(e($v)) : '<span class="muted">&mdash;</span>' ?><?= sx_geo_link($fd, $details) ?></dd>
                         <?php endforeach; ?>
                     </dl>
                 </section>

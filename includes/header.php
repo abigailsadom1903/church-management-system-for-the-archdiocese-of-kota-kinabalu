@@ -40,6 +40,7 @@ $dashboardLink = !empty($_SESSION['user_id']) ? ($dashboards[$_SESSION['role'] ?
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: 1 ?>">
+    <?php require_once __DIR__ . '/theme.php'; theme_head(); ?>
 </head>
 <body>
 <div class="topbar"></div>
@@ -56,6 +57,7 @@ $dashboardLink = !empty($_SESSION['user_id']) ? ($dashboards[$_SESSION['role'] ?
         <span class="sep" aria-hidden="true">|</span>
         <a href="<?= $navBase ?>#about" data-nav="about" class="<?= !$onePage && $activeNav === 'about' ? 'active' : '' ?>">About Us</a>
     </nav>
+    <?php theme_toggle(); ?>
     <?php if ($dashboardLink): ?>
         <a href="<?= htmlspecialchars($dashboardLink) ?>" class="avatar-link" title="<?= htmlspecialchars($_SESSION['user_name'] ?? 'My dashboard') ?> &ndash; open my account" aria-label="Open my account">
             <?php $avatarFile = ($_SESSION['role'] ?? '') === 'user' ? ($_SESSION['user_photo'] ?? '') : ''; ?>

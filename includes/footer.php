@@ -116,5 +116,6 @@ $footSignedIn = !empty($_SESSION['user_id']);
 </script>
 <script src="<?= $footerRoot ?>assets/js/photo-adjust.js?v=<?= @filemtime(__DIR__ . '/../assets/js/photo-adjust.js') ?: 1 ?>" defer></script>
 <script src="<?= $footerRoot ?>assets/js/photo-view.js?v=<?= @filemtime(__DIR__ . '/../assets/js/photo-view.js') ?: 1 ?>" defer></script>
+<script src="<?= $footerRoot ?>assets/js/church-picker.js?v=<?= @filemtime(__DIR__ . '/../assets/js/church-picker.js') ?: 1 ?>" defer></script>
 </body>
 </html>

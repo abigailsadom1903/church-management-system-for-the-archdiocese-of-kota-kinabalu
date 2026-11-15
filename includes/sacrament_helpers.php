@@ -137,7 +137,7 @@ function sx_config(string $type): ?array
                     ]],
                     ['title' => null, 'fields' => [
                         $f('patient_name', "Patient's Full Name"), $f('age', 'Age', 'number', true, ['min' => 0, 'max' => 120]),
-                        $f('location', 'Location Details', 'text', true, ['max' => 255]), $f('visit_at', 'Preferred Visit Date & Time', 'datetime', true, ['future' => true, 'pick' => true]),
+                        $f('location', 'Location Details', 'text', true, ['max' => 255, 'geo' => true, 'ph' => 'e.g. Queen Elizabeth Hospital, Ward 5B, Bed 12']), $f('visit_at', 'Preferred Visit Date & Time', 'datetime', true, ['future' => true, 'pick' => true]),
                     ]],
                     ['title' => 'Contact Person', 'small' => true, 'fields' => [
                         $f('cp_name', 'Name'), $f('cp_number', 'Contact Number', 'tel'), $f('cp_relationship', 'Relationship'),
@@ -215,8 +215,29 @@ function sx_collect(array $cfg, array $post): array
         $v = mb_substr(trim((string)($post[$k] ?? '')), 0, $max);
         if (in_array($fd['t'], ['radio', 'select'], true) && !isset($fd['o'][$v])) $v = '';
         $out[$k] = $v;
+        // A place field ('geo') may also carry the exact spot the person's device detected: "lat,lng".
+        if (!empty($fd['geo'])) $out[$k . '_geo'] = $v === '' ? '' : sx_geo_clean((string)($post[$k . '_geo'] ?? ''));
     }
     return $out;
+}
+
+/** "5.98041,116.07533" when the value is a real latitude,longitude pair; '' otherwise. */
+function sx_geo_clean(string $v): string
+{
+    if (!preg_match('/^\s*(-?\d{1,2}(?:\.\d{1,8})?)\s*,\s*(-?\d{1,3}(?:\.\d{1,8})?)\s*$/', $v, $m)) return '';
+    [$lat, $lng] = [(float)$m[1], (float)$m[2]];
+    if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) return '';
+    return round($lat, 6) . ',' . round($lng, 6);
+}
+
+/** "Open in Google Maps" link for a place field that has a detected spot (empty string when it has none). */
+function sx_geo_link(array $fd, array $details): string
+{
+    if (empty($fd['geo'])) return '';
+    $geo = sx_geo_clean((string)($details[$fd['k'] . '_geo'] ?? ''));
+    if ($geo === '') return '';
+    return ' <a class="sx-geo-map" href="https://www.google.com/maps/search/?api=1&amp;query=' . rawurlencode($geo) . '" target="_blank" rel="noopener">'
+         . sx_icon('pin', 13) . ' Open in Google Maps</a>';
 }
 
 /**
@@ -294,6 +315,10 @@ function sx_icon(string $name, int $size = 24): string
         'info'     => '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
         'save'     => '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>',
         'church'   => '<path d="m18 7 4 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9l4-2"/><path d="M14 22v-4a2 2 0 0 0-4 0v4"/><path d="M18 22V5l-6-3-6 3v17"/><path d="M12 7v5"/><path d="M10 9h4"/>',
+        'user'     => '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        'clock'    => '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+        'pin'      => '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+        'arrow'    => '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
         'left'     => '<path d="m15 18-6-6 6-6"/>',
         'right'    => '<path d="m9 18 6-6-6-6"/>',
         'trash'    => '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
@@ -303,6 +328,7 @@ function sx_icon(string $name, int $size = 24): string
         'search'   => '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
         'print'    => '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/>',
         'chevron'  => '<path d="m6 9 6 6 6-6"/>',
+        'message'  =>'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
         'star'     => '<path d="M12 3v18"/><path d="m4.9 7.5 14.2 9"/><path d="m4.9 16.5 14.2-9"/>',
     ];
     return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . ($p[$name] ?? '') . '</svg>';

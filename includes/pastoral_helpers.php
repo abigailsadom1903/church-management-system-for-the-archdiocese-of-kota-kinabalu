@@ -217,7 +217,7 @@ function pc_config(string $service): ?array
                 ['title' => null, 'fields' => [
                     $f('patient_name', "Patient's Full Name"),
                     $f('communion', 'Able to receive holy communion?', 'radio', true, ['o' => ['yes' => 'Yes', 'no' => 'No']]),
-                    $f('location', 'Location Details', 'text', true, ['max' => 255]),
+                    $f('location', 'Location Details', 'text', true, ['max' => 255, 'geo' => true, 'ph' => 'e.g. Queen Elizabeth Hospital, Ward 5B, Bed 12']),
                     $f('visit_at', 'Preferred Visit Date/Time', 'datetime', true, ['future' => true, 'pick' => true, 'hours' => ANOINTING_HOURS, 'days' => ANOINTING_DAYS_AHEAD]),
                 ]],
                 ['title' => 'Contact Person', 'small' => true, 'fields' => [
@@ -228,7 +228,7 @@ function pc_config(string $service): ?array
             return ['title' => 'House Blessing', 'steps' => false, 'intro' => 'Invite a priest to bless your home. Our office will confirm the date and time with you.', 'sections' => [
                 ['title' => null, 'fields' => [
                     $f('owner_name', "House Owner's Full Name"),
-                    $f('address', 'House Address', 'text', true, ['max' => 255]),
+                    $f('address', 'House Address', 'text', true, ['max' => 255, 'geo' => true, 'ph' => 'House number, street, area']),
                     $f('preferred_at', 'Preferred Date/Time', 'datetime', true, ['side' => true, 'future' => true, 'pick' => true, 'hours' => ANOINTING_HOURS, 'days' => ANOINTING_DAYS_AHEAD]),
                     $f('contact_phone', 'Contact Number', 'tel', true),
                     $f('notes', 'Anything else the priest should know?', 'textarea', false, ['max' => 300]),
@@ -240,7 +240,7 @@ function pc_config(string $service): ?array
                     $f('deceased_name', "Deceased's Full Name"),
                     $f('date_of_death', 'Date of Death', 'date', true, ['past' => true]),
                     $f('funeral_at', 'Preferred Funeral Date/Time', 'datetime', true, ['future' => true, 'pick' => true, 'hours' => ANOINTING_HOURS, 'days' => ANOINTING_DAYS_AHEAD]),
-                    $f('venue', 'Funeral Venue', 'text', true, ['max' => 255]),
+                    $f('venue', 'Funeral Venue', 'text', true, ['max' => 255, 'geo' => true, 'ph' => 'e.g. family home, funeral parlour or church hall']),
                 ]],
                 ['title' => 'Contact Person', 'small' => true, 'fields' => [
                     $f('contact_name', 'Name'), $f('contact_phone', 'Contact Number', 'tel'), $f('relationship', 'Relationship to the Deceased'),

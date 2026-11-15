@@ -43,3 +43,7 @@ logs/catholic-sabah-news.json
 uploads/catechesis_lessons/*
 !uploads/catechesis_lessons/.htaccess
 logs/ai-quota.json
+uploads/church_gallery/*
+!uploads/church_gallery/.gitkeep
+!uploads/church_gallery/.htaccess
+logs/calendar-summaries/

@@ -49,12 +49,16 @@ CREATE TABLE church_info (
     church_address         VARCHAR(255) NULL,        -- full street address, used for the map
     church_lat             DECIMAL(10,7) NULL,       -- geocoded coordinates, for the Directory's "Nearest Church" feature
     church_lng             DECIMAL(10,7) NULL,
+    church_location_verified TINYINT(1) NOT NULL DEFAULT 0,  -- 1 = the point above was checked to be at the church (see church_coordinates.sql)
     church_contact_details VARCHAR(50),              -- phone number
     church_email           VARCHAR(100) NULL,
     church_website         VARCHAR(150) NULL,
     church_facebook        VARCHAR(150) NULL,
     church_whatsapp        VARCHAR(255) NULL,        -- WhatsApp Community invite link (chat.whatsapp.com/...)
     church_office_hours    VARCHAR(255),             -- one line per day range, separated by newlines
+    church_history         TEXT NULL,                -- short parish history: paragraphs, then "Year – event" lines (filled by church_history.sql)
+    church_history_source  VARCHAR(255) NULL,        -- web page the history was summarised from
+    church_virtual_tour    VARCHAR(1000) NULL,       -- Google Maps 360° embed address (maps/embed?pb=...), see church_virtual_tour.sql
     church_priest          VARCHAR(100),             -- (older) only used by church_details.sql, which moves it into church_priests
     church_priest_title    VARCHAR(50)  NULL,
     church_photo           VARCHAR(100) NULL,        -- file name inside assets/images/churches/
@@ -82,6 +86,18 @@ CREATE TABLE IF NOT EXISTS church_priests (
     updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_priest_church (church_id, sort_order),
     CONSTRAINT fk_priest_church FOREIGN KEY (church_id) REFERENCES church_info(church_info_id) ON DELETE CASCADE
+);
+
+-- Photo gallery per church (interior, altar, feast days ...), shown under the History on Church Information.
+CREATE TABLE IF NOT EXISTS church_gallery (
+    photo_id    INT AUTO_INCREMENT PRIMARY KEY,
+    church_id   INT NOT NULL,
+    photo_file  VARCHAR(100) NOT NULL,          -- file name inside uploads/church_gallery/
+    caption     VARCHAR(120) NULL,              -- e.g. "Altar", "Feast day 2025"
+    sort_order  INT NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_church_gallery_church (church_id),
+    CONSTRAINT fk_church_gallery_church FOREIGN KEY (church_id) REFERENCES church_info (church_info_id) ON DELETE CASCADE
 );
 
 -- Now that church_info exists, add the foreign key admin.church_id was missing.

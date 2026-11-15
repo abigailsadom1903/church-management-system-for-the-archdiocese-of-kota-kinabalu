@@ -5,6 +5,8 @@ require __DIR__ . '/includes/login_gate.php';
 require_signed_in('Church Calendar');   // visitors get "please login or register" instead of this page
 require __DIR__ . '/includes/church_helpers.php';
 require __DIR__ . '/includes/event_helpers.php';
+require __DIR__ . '/includes/liturgical.php';
+require __DIR__ . '/includes/calendar_ai.php';
 
 function e(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -15,7 +17,7 @@ $role = $_SESSION['role'] ?? '';
 $isSuper = !empty($_SESSION['user_id']) && $role === 'super_admin';
 $isChurchAdmin = !empty($_SESSION['user_id']) && $role === 'church_admin';
 
-$churches = $pdo->query('SELECT church_info_id, church_name, church_location FROM church_info ORDER BY church_name')->fetchAll();
+$churches = $pdo->query('SELECT church_info_id, church_name, church_location, church_photo FROM church_info ORDER BY church_name')->fetchAll();
 $byId = array_column($churches, null, 'church_info_id');
 
 // ---- What to show: church (0 = all churches), filter, month, view, day, search --------------
@@ -196,6 +198,65 @@ $prevMonth = date('Y-m', strtotime($monthStart . ' -1 month'));
 $nextMonth = date('Y-m', strtotime($monthStart . ' +1 month'));
 $churchLabel = $churchId > 0 ? $byId[$churchId]['church_name'] : 'All churches';
 
+// ---- Calendar page extras: the numbers at the top, the church photo, the season, the chosen day ----
+if ($view === 'calendar') {
+    // Numbers for this month (not affected by the Mass / Event filter).
+    $sundayMasses = $langs = $monthEvents = [];
+    foreach (load_events($pdo, $churchId, '', $monthStart, $monthEnd) as $ev) {
+        $occ = event_occurrences($ev, $monthStart, $monthEnd);
+        if (!$occ) continue;
+        if ($ev['category'] === 'mass') {
+            foreach ($occ as $d) if ((int)date('w', strtotime($d)) === 0) { $sundayMasses[$ev['event_id']] = true; break; }
+            if ($lang = cal_language($ev['title'])) $langs[mb_strtolower($lang)] = true;
+        } else {
+            $monthEvents[$ev['event_id']] = true;
+        }
+    }
+    $calStats = [count($sundayMasses), count($langs), count($monthEvents)];
+
+    $heroPhoto = $churchId > 0 ? church_photo_url($byId[$churchId]['church_photo'] ?? null) : null;
+    $season = lit_season($today);
+
+
+    // The day shown in the side card: the day that was tapped, otherwise today.
+    $focusDay = $day ?: $today;
+    if (isset($byDate[$focusDay])) {
+        $focusItems = $byDate[$focusDay];
+    } else {
+        $focusItems = [];
+        foreach (load_events($pdo, $churchId, $filter, $focusDay, $focusDay) as $ev) {
+            foreach (event_occurrences($ev, $focusDay, $focusDay) as $d) $focusItems[] = ['date' => $d, 'event' => $ev];
+        }
+        sort_occurrences($focusItems);
+    }
+
+    // "This week" summary: shown at once when it was written earlier today, otherwise fetched after the page loads.
+    $aiSummary = calendar_summary($pdo, $churchId, $filter, $churchId > 0 ? $churchLabel : 'all churches', true);
+    $aiUrl = 'calendar-summary.php?' . http_build_query(['church' => $churchId, 'type' => $filter], '', '&amp;');
+
+    // How many upcoming events the signed-in parishioner has registered for (badge on "My Registrations").
+    $myRegCount = 0;
+    if ($role === 'user') {
+        $st = $pdo->prepare('SELECT COUNT(*) FROM event_registrations r JOIN events e ON e.event_id = r.event_id WHERE r.user_id = ? AND e.event_date >= ?');
+        $st->execute([(int)$_SESSION['user_id'], $today]);
+        $myRegCount = (int)$st->fetchColumn();
+    }
+}
+
+/** The language in a Mass title, e.g. "Sunday Mass (Mandarin)" -> "Mandarin"; null if none. */
+function cal_language(string $title): ?string
+{
+    return preg_match('/\(([^)]+)\)\s*$/', $title, $m) ? trim($m[1]) : null;
+}
+
+/** Short time for a calendar chip: "7:30" in the morning, "7:00pm" after noon. */
+function cal_chip_time(?string $t): string
+{
+    if (!$t) return '';
+    $ts = strtotime($t);
+    return date('g:i', $ts) . ((int)date('G', $ts) >= 12 ? 'pm' : '');
+}
+
 $pageTitle = $view === 'manage' ? 'Event Management' : 'Church Calendar';
 $activeNav = 'services';
 
@@ -275,165 +336,246 @@ $renderOtherRow = function (array $ev): void { ?>
 
 include __DIR__ . '/includes/header.php';
 ?>
-<main class="cal-page">
-    <?php back_button('index.php#services', 'Back to Services'); ?>
+<main class="cal-page<?= $view === 'calendar' ? ' is-cal' : '' ?>">
 <?php if ($view === 'calendar'): ?>
-    <header class="page-heading">
-        <h1>Church Calendar</h1>
-        <p>Masses, events and gatherings across the parishes.</p>
-    </header>
-<?php endif; ?>
+    <!-- Hero: title, this month's numbers, the church photo and the liturgical season -->
+    <section class="cx-hero">
+        <div class="cx-wrap cx-hero-inner">
+            <div class="cx-hero-text">
+                <?php back_button('index.php#services', 'Back to Services'); ?>
+                <p class="cx-eyebrow">Parish life &middot; Masses &amp; gatherings</p>
+                <h1>Church Calendar</h1>
+                <p class="cx-lead">Find a Mass in your language, join a parish gathering, and keep track of what you&rsquo;ve registered for.</p>
+                <dl class="cx-stats">
+                    <div><dt>Sunday Masses</dt><dd><?= $calStats[0] ?></dd></div>
+                    <div><dt>Languages</dt><dd><?= $calStats[1] ?></dd></div>
+                    <div><dt>Events this month</dt><dd><?= $calStats[2] ?></dd></div>
+                </dl>
+                <!-- Which church's calendar: sits beside the church photo it changes -->
+                <div class="cx-hero-church">
+                    <p class="cx-hero-church-l" id="cal-church-l">Showing the calendar for</p>
+                    <?php if ($isChurchAdmin): ?>
+                        <span class="cx-church is-fixed"><?= ev_icon('church', 16) ?> <?= e($churchLabel) ?></span>
+                    <?php else: ?>
+                        <form method="get" action="events.php" class="cx-church" id="cal-church-form">
+                            <?= ev_icon('church', 16) ?>
+                            <?php if ($filter): ?><input type="hidden" name="type" value="<?= e($filter) ?>"><?php endif; ?>
+                            <?php if ($q !== ''): ?><input type="hidden" name="q" value="<?= e($q) ?>"><?php endif; ?>
+                            <label for="cal-church" class="sr-only">Church</label>
+                            <select id="cal-church" name="church" aria-label="Church" data-church-picker>
+                                <option value="0" data-name="All churches" data-loc="Every parish" <?= $churchId === 0 ? 'selected' : '' ?>>All churches</option>
+                                <?php foreach ($churches as $ch): ?>
+                                    <option value="<?= (int)$ch['church_info_id'] ?>" data-name="<?= e($ch['church_name']) ?>" data-loc="<?= e($ch['church_location']) ?>" data-photo="<?= e((string)church_photo_url($ch['church_photo'])) ?>" <?= (int)$ch['church_info_id'] === $churchId ? 'selected' : '' ?>><?= e($ch['church_name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="cx-hero-art">
+                <div class="cx-photo<?= $heroPhoto ? '' : ' is-empty' ?>">
+                    <?php if ($heroPhoto): ?>
+                        <img src="<?= e($heroPhoto) ?>" alt="<?= e($churchLabel) ?>">
+                    <?php else: ?>
+                        <svg class="cx-photo-art" viewBox="0 0 200 140" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M100 8v22M92 16h16"/><path d="M60 70 100 34l40 36"/><path d="M68 66v66h64V66"/><path d="M92 132v-22a8 8 0 0 1 16 0v22"/><circle cx="100" cy="64" r="8"/><path d="M20 132V92l40-22M180 132V92l-40-22"/><path d="M10 132h180"/></g></svg>
+                        <span class="cx-photo-name"><?= e($churchLabel) ?></span>
+                    <?php endif; ?>
+                </div>
+                <div class="cx-season tone-<?= e($season['tone']) ?>">
+                    <span class="cx-season-ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg></span>
+                    <span><small>Liturgical season</small><b><?= e($season['name']) ?> &middot; <?= e($season['next']) ?></b></span>
+                </div>
+            </div>
+        </div>
+    </section>
 
+    <div class="cx-wrap cx-body">
+        <?php if ($flash): ?><div class="alert success info-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
+        <?php if ($error): ?><div class="alert info-alert" role="alert"><?= e($error) ?></div><?php endif; ?>
+
+        <!-- One bar: Mass / Event filter, search, my registrations (the church is picked in the hero, beside its photo) -->
+        <div class="cx-toolbar">
+            <nav class="cx-filter" aria-label="Show">
+                <a href="<?= cal_url(['type' => '']) ?>" class="<?= $filter === '' ? 'is-active' : '' ?>">All</a>
+                <a href="<?= cal_url(['type' => 'mass']) ?>" class="<?= $filter === 'mass' ? 'is-active' : '' ?>">Masses</a>
+                <a href="<?= cal_url(['type' => 'event']) ?>" class="<?= $filter === 'event' ? 'is-active' : '' ?>">Events</a>
+            </nav>
+            <form method="get" action="events.php" class="cx-search" role="search">
+                <input type="hidden" name="church" value="<?= $churchId ?>">
+                <?php if ($filter): ?><input type="hidden" name="type" value="<?= e($filter) ?>"><?php endif; ?>
+                <?php if ($month !== date('Y-m')): ?><input type="hidden" name="month" value="<?= e($month) ?>"><?php endif; ?>
+                <?= ev_icon('search', 16) ?>
+                <input type="search" name="q" value="<?= e($q) ?>" placeholder="Search a Mass, language or event" aria-label="Search masses and events" maxlength="100">
+                <?php if ($q !== ''): ?><a href="<?= cal_url(['q' => '']) ?>" class="cal-search-clear" aria-label="Clear the search">&times;</a><?php endif; ?>
+            </form>
+            <?php $tabs(); ?>
+            <?php if ($role === 'user'): ?>
+                <a class="cx-myreg" href="my-events.php"><?= ev_icon('check', 15) ?> My Registrations<?php if ($myRegCount): ?> <span class="cx-myreg-n"><?= $myRegCount ?></span><?php endif; ?></a>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($q !== ''): $shown = array_slice($found, 0, 40); ?>
+            <section class="cal-found" id="results" aria-label="Search results">
+                <div class="cal-found-head">
+                    <h2><?= count($found) ?> <?= count($found) === 1 ? 'result' : 'results' ?> for &ldquo;<?= e($q) ?>&rdquo; <span><?= e($churchLabel) ?><?= $filter ? ' &middot; ' . ($filter === 'mass' ? 'Masses' : 'Events') : '' ?></span></h2>
+                    <div class="cal-found-tools">
+                        <?php if ($churchId > 0 && !$isChurchAdmin): ?><a href="<?= cal_url(['church' => 0]) ?>#results">Search all churches</a><?php endif; ?>
+                        <a href="<?= cal_url(['q' => '']) ?>">Clear search</a>
+                    </div>
+                </div>
+                <?php if (!$found): ?>
+                    <p class="up-empty">No upcoming Mass or event matches your search. Try a shorter word<?= $churchId > 0 && !$isChurchAdmin ? ', or search all churches' : '' ?>.</p>
+                <?php endif; ?>
+                <div class="cal-found-list">
+                    <?php foreach ($shown as $it): $ev = $it['event']; $reg = $ev['registration_required'] && !$ev['repeat_weekly']; ?>
+                        <a class="cal-found-item <?= event_type_class($ev['event_type']) ?>" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= e($it['date']) ?>">
+                            <span class="cal-found-date"><small><?= e(strtoupper(date('M', strtotime($it['date'])))) ?></small><b><?= (int)date('j', strtotime($it['date'])) ?></b><small><?= e(date('D', strtotime($it['date']))) ?></small></span>
+                            <span class="cal-found-main">
+                                <strong><?= e($ev['title']) ?></strong>
+                                <span><?= e(event_time_text($ev)) ?><?= $ev['location'] ? ' &middot; ' . e($ev['location']) : '' ?></span>
+                                <span class="cal-found-church"><?= e($ev['church_name']) ?></span>
+                            </span>
+                            <span class="cal-found-tags">
+                                <i><?= e($ev['event_type']) ?></i>
+                                <?php if ($ev['repeat_weekly']): ?><i class="is-plain">Every <?= e(date('l', strtotime($it['date']))) ?></i><?php endif; ?>
+                                <?php if ($reg): ?><i class="is-reg">Registration</i><?php endif; ?>
+                            </span>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+                <?php if (count($found) > count($shown)): ?><p class="up-empty">Showing the first <?= count($shown) ?>. Add another word to narrow the search.</p><?php endif; ?>
+            </section>
+        <?php endif; ?>
+
+
+        <!-- "This week": a short summary of the next 7 days, written by AI from this calendar -->
+        <section class="cx-ai<?= $aiSummary ? '' : ' is-loading' ?>" id="cx-ai" data-url="<?= $aiUrl ?>" aria-live="polite">
+            <span class="cx-ai-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z" opacity=".7"/></svg></span>
+            <div class="cx-ai-body">
+                <p class="cx-ai-label">This week <?= $churchId > 0 ? 'at ' . e($churchLabel) : 'across the parishes' ?>
+                    <span class="cx-ai-range"><?= e($aiSummary['range'] ?? '') ?></span>
+                    <span class="cx-ai-badge"<?= $aiSummary && !$aiSummary['ai'] ? ' hidden' : '' ?>>AI summary</span></p>
+                <p class="cx-ai-text"><?= $aiSummary ? e($aiSummary['text']) : '<span class="cx-ai-skel"></span><span class="cx-ai-skel is-short"></span>' ?></p>
+                <p class="cx-ai-note">Written by AI from this calendar. Please check exact times in the calendar below.</p>
+            </div>
+        </section>
+        <div class="cx-layout">
+            <!-- Month grid -->
+            <section class="cx-cal" aria-label="Calendar for <?= e(date('F Y', strtotime($monthStart))) ?>">
+                <div class="cx-cal-head">
+                    <h2><?= e(date('F', strtotime($monthStart))) ?> <span class="cx-year"><?= e(date('Y', strtotime($monthStart))) ?></span> <small><?= e($churchLabel) ?></small></h2>
+                    <div class="cx-cal-tools">
+                        <?php if ($canManageSelected): ?>
+                            <a class="btn-new" href="event-form.php?church=<?= $churchId ?>"><?= ev_icon('plus', 15) ?> New Event</a>
+                        <?php endif; ?>
+                        <a class="cx-today" href="<?= cal_url(['month' => date('Y-m')]) ?>">Today</a>
+                        <a class="cx-arrow" href="<?= cal_url(['month' => $prevMonth]) ?>" aria-label="Previous month"><?= ev_icon('left', 16) ?></a>
+                        <a class="cx-arrow" href="<?= cal_url(['month' => $nextMonth]) ?>" aria-label="Next month"><?= ev_icon('right', 16) ?></a>
+                    </div>
+                </div>
+
+                <div class="cx-grid" role="grid">
+                    <?php foreach (['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as $dow): ?><div class="cx-dow" role="columnheader"><?= $dow ?></div><?php endforeach; ?>
+                    <?php for ($d = $gridFrom; $d <= $gridTo; $d = date('Y-m-d', strtotime($d . ' +1 day'))):
+                        $items = $byDate[$d] ?? [];
+                        $feast = lit_feast($d);
+                        $cls = 'cx-cell' . (substr($d, 0, 7) !== $month ? ' is-other' : '') . ((int)date('w', strtotime($d)) === 0 ? ' is-sun' : '')
+                             . ($d === $today ? ' is-today' : '') . ($d === $day ? ' is-selected' : '');
+                        $dayUrl = cal_url(['day' => $d, 'month' => $month]);
+                    ?>
+                        <div class="<?= $cls ?>" role="gridcell" data-href="<?= $dayUrl ?>">
+                            <a class="cx-daynum" href="<?= $dayUrl ?>" aria-label="<?= e(date('l, j F', strtotime($d))) ?><?= $feast ? ', ' . e($feast[0]) : '' ?><?= $items ? ', ' . count($items) . ' on the calendar' : '' ?>"><?= (int)date('j', strtotime($d)) ?></a>
+                            <?php if ($feast): ?><span class="cx-feast is-<?= e($feast[1]) ?>"><?= e($feast[0]) ?></span><?php endif; ?>
+                            <?php foreach (array_slice($items, 0, 3) as $it): $ev = $it['event']; $isMass = $ev['category'] === 'mass'; ?>
+                                <a class="cx-chip <?= $isMass ? 'is-mass' : 'is-event' ?>" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $d ?>"
+                                   title="<?= e($ev['title'] . ' · ' . event_time_text($ev) . ($churchId === 0 ? ' · ' . $ev['church_name'] : '')) ?>">
+                                    <i aria-hidden="true"></i><?php if (!$ev['is_all_day'] && $ev['start_time']): ?><b><?= e(cal_chip_time($ev['start_time'])) ?></b><?php endif; ?>
+                                    <span><?= e($isMass ? (cal_language($ev['title']) ?? $ev['title']) : $ev['title']) ?></span>
+                                </a>
+                            <?php endforeach; ?>
+                            <?php if (count($items) > 3): ?><a class="cx-more" href="<?= $dayUrl ?>">+<?= count($items) - 3 ?> more</a><?php endif; ?>
+                        </div>
+                    <?php endfor; ?>
+                </div>
+                <div class="cx-legend">
+                    <span class="is-mass"><i></i>Mass</span>
+                    <span class="is-event"><i></i>Parish event</span>
+                    <span class="is-feast"><em>Italic</em> Feast or solemnity</span>
+                    <span class="cx-legend-tip">Tap a day to see its full schedule</span>
+                </div>
+            </section>
+
+            <aside class="cx-side">
+                <!-- The tapped day (or today) -->
+                <section class="cx-day">
+                    <div class="cx-day-head">
+                        <span class="cx-day-tile"><small><?= e(strtoupper(date('D', strtotime($focusDay)))) ?></small><b><?= (int)date('j', strtotime($focusDay)) ?></b></span>
+                        <h2><?= $focusDay === $today ? 'Today &middot; ' : '' ?><?= e(date('l, j F', strtotime($focusDay))) ?></h2>
+                        <?php if ($day): ?><a class="cx-day-clear" href="<?= cal_url(['day' => '']) ?>" aria-label="Back to today">&times;</a><?php endif; ?>
+                    </div>
+                    <?php if ($f = lit_feast($focusDay)): ?><p class="cx-day-feast"><?= e($f[0]) ?></p><?php endif; ?>
+                    <?php if (!$focusItems): ?>
+                        <p class="cx-day-empty">Nothing scheduled on this day<?= $filter ? ' in this filter' : '' ?>.</p>
+                    <?php else: ?>
+                        <ul class="cx-day-list">
+                            <?php foreach ($focusItems as $it): $ev = $it['event']; ?>
+                                <li class="<?= $ev['category'] === 'mass' ? 'is-mass' : 'is-event' ?>">
+                                    <a href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= e($focusDay) ?>">
+                                        <span class="cx-day-time"><?= $ev['is_all_day'] ? 'All day' : e(fmt_time($ev['start_time'])) ?></span>
+                                        <span class="cx-day-title"><?= e($ev['title']) ?><small><?= e($ev['location'] ?: $ev['church_name']) ?><?= $churchId === 0 && $ev['location'] ? ' &middot; ' . e($ev['church_name']) : '' ?></small></span>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </section>
+
+                <!-- Upcoming, grouped by day -->
+                <section class="cx-up">
+                    <div class="cx-up-head"><h2>Upcoming</h2><span class="week-badge">Week <?= (int)date('W') ?></span></div>
+                    <?php if (!$upcoming): ?><p class="cx-day-empty">No upcoming Masses or events<?= $filter ? ' in this filter' : '' ?>.</p><?php endif; ?>
+                    <?php $groups = []; foreach ($upcoming as $u) $groups[$u['date']][] = $u; ?>
+                    <?php foreach ($groups as $gDate => $items): $gFeast = lit_feast($gDate); ?>
+                        <div class="cx-up-day">
+                            <span class="cx-up-date"><small><?= e(strtoupper(date('D', strtotime($gDate)))) ?></small><b><?= (int)date('j', strtotime($gDate)) ?></b></span>
+                            <div class="cx-up-items">
+                                <?php if ($gFeast): ?><p class="cx-feast-line"><?= e($gFeast[0]) ?></p><?php endif; ?>
+                                <?php foreach ($items as $it): $ev = $it['event']; $reg = $ev['registration_required'] && !$ev['repeat_weekly']; ?>
+                                    <div class="cx-up-item">
+                                        <a class="cx-up-title" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $gDate ?>"><?= e($ev['title']) ?></a>
+                                        <span class="cx-up-meta"><?= $ev['is_all_day'] ? 'All day' : e(fmt_time($ev['start_time'])) ?> &middot; <?= e($ev['location'] ?: $ev['church_name']) ?></span>
+                                        <?= countdown_badge($ev, $gDate) ?>
+                                        <?php if ($reg): ?><a class="up-reg" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $gDate ?>#register">Register &rarr;</a><?php endif; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </section>
+            </aside>
+        </div>
+    </div>
+
+<?php else: ?>
+    <?php back_button('index.php#services', 'Back to Services'); ?>
     <?php if ($flash): ?><div class="alert success info-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
     <?php if ($error): ?><div class="alert info-alert" role="alert"><?= e($error) ?></div><?php endif; ?>
-
     <div class="cal-toolbar">
         <?php if ($isChurchAdmin): ?>
             <span class="cal-church-fixed"><?= ev_icon('church', 15) ?> <?= e($churchLabel) ?></span>
         <?php else: ?>
             <form method="get" action="events.php" class="cal-church" id="cal-church-form">
-                <?php if ($filter): ?><input type="hidden" name="type" value="<?= e($filter) ?>"><?php endif; ?>
-                <?php if ($view === 'manage'): ?><input type="hidden" name="view" value="manage"><?php endif; ?>
-                <?php if ($view === 'calendar' && $q !== ''): ?><input type="hidden" name="q" value="<?= e($q) ?>"><?php endif; ?>
+                <input type="hidden" name="view" value="manage">
                 <label for="cal-church" class="sr-only">Church</label>
-                <select id="cal-church" name="church" aria-label="Church">
-                    <option value="0" <?= $churchId === 0 ? 'selected' : '' ?>>All churches</option>
+                <select id="cal-church" name="church" aria-label="Church" data-church-picker>
+                    <option value="0" data-name="All churches" data-loc="Every parish" <?= $churchId === 0 ? 'selected' : '' ?>>All churches</option>
                     <?php foreach ($churches as $ch): ?>
-                        <option value="<?= (int)$ch['church_info_id'] ?>" <?= (int)$ch['church_info_id'] === $churchId ? 'selected' : '' ?>><?= e($ch['church_name']) ?></option>
+                        <option value="<?= (int)$ch['church_info_id'] ?>" data-name="<?= e($ch['church_name']) ?>" data-loc="<?= e($ch['church_location']) ?>" data-photo="<?= e((string)church_photo_url($ch['church_photo'])) ?>" <?= (int)$ch['church_info_id'] === $churchId ? 'selected' : '' ?>><?= e($ch['church_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </form>
         <?php endif; ?>
-
-        <?php if ($view === 'calendar'): ?>
-            <nav class="cal-filter" aria-label="Filter events">
-                <a href="<?= cal_url(['type' => '']) ?>" class="<?= $filter === '' ? 'is-active' : '' ?>">All</a>
-                <a href="<?= cal_url(['type' => 'mass']) ?>" class="<?= $filter === 'mass' ? 'is-active' : '' ?>">Mass Schedule</a>
-                <a href="<?= cal_url(['type' => 'event']) ?>" class="<?= $filter === 'event' ? 'is-active' : '' ?>">Event</a>
-            </nav>
-            <form method="get" action="events.php" class="cal-search" role="search">
-                <input type="hidden" name="church" value="<?= $churchId ?>">
-                <?php if ($filter): ?><input type="hidden" name="type" value="<?= e($filter) ?>"><?php endif; ?>
-                <?php if ($month !== date('Y-m')): ?><input type="hidden" name="month" value="<?= e($month) ?>"><?php endif; ?>
-                <?= ev_icon('search', 16) ?>
-                <input type="search" name="q" value="<?= e($q) ?>" placeholder="Search a mass or event&hellip;" aria-label="Search masses and events" maxlength="100">
-                <?php if ($q !== ''): ?><a href="<?= cal_url(['q' => '']) ?>" class="cal-search-clear" aria-label="Clear the search">&times;</a><?php endif; ?>
-            </form>
-            <?php $tabs(); ?>
-            <?php if (($_SESSION['role'] ?? '') === 'user'): ?>
-                <a class="cal-myreg" href="my-events.php"><?= ev_icon('check', 15) ?> My Registrations</a>
-            <?php endif; ?>
-        <?php endif; ?>
     </div>
-
-<?php if ($view === 'calendar'): ?>
-    <?php if ($q !== ''): $shown = array_slice($found, 0, 40); ?>
-        <section class="cal-found" id="results" aria-label="Search results">
-            <div class="cal-found-head">
-                <h2><?= count($found) ?> <?= count($found) === 1 ? 'result' : 'results' ?> for &ldquo;<?= e($q) ?>&rdquo; <span><?= e($churchLabel) ?><?= $filter ? ' &middot; ' . ($filter === 'mass' ? 'Mass Schedule' : 'Event') : '' ?></span></h2>
-                <div class="cal-found-tools">
-                    <?php if ($churchId > 0 && !$isChurchAdmin): ?><a href="<?= cal_url(['church' => 0]) ?>#results">Search all churches</a><?php endif; ?>
-                    <a href="<?= cal_url(['q' => '']) ?>">Clear search</a>
-                </div>
-            </div>
-            <?php if (!$found): ?>
-                <p class="up-empty">No upcoming mass or event matches your search. Try a shorter word<?= $churchId > 0 && !$isChurchAdmin ? ', or search all churches' : '' ?>.</p>
-            <?php endif; ?>
-            <div class="cal-found-list">
-                <?php foreach ($shown as $it): $ev = $it['event']; $reg = $ev['registration_required'] && !$ev['repeat_weekly']; ?>
-                    <a class="cal-found-item <?= event_type_class($ev['event_type']) ?>" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= e($it['date']) ?>">
-                        <span class="cal-found-date"><small><?= e(strtoupper(date('M', strtotime($it['date'])))) ?></small><b><?= (int)date('j', strtotime($it['date'])) ?></b><small><?= e(date('D', strtotime($it['date']))) ?></small></span>
-                        <span class="cal-found-main">
-                            <strong><?= e($ev['title']) ?></strong>
-                            <span><?= e(event_time_text($ev)) ?><?= $ev['location'] ? ' &middot; ' . e($ev['location']) : '' ?></span>
-                            <span class="cal-found-church"><?= e($ev['church_name']) ?></span>
-                        </span>
-                        <span class="cal-found-tags">
-                            <i><?= e($ev['event_type']) ?></i>
-                            <?php if ($ev['repeat_weekly']): ?><i class="is-plain">Every <?= e(date('l', strtotime($it['date']))) ?></i><?php endif; ?>
-                            <?php if ($reg): ?><i class="is-reg">Registration</i><?php endif; ?>
-                        </span>
-                    </a>
-                <?php endforeach; ?>
-            </div>
-            <?php if (count($found) > count($shown)): ?><p class="up-empty">Showing the first <?= count($shown) ?>. Add another word to narrow the search.</p><?php endif; ?>
-        </section>
-    <?php endif; ?>
-    <div class="cal-layout">
-        <section class="cal-card" aria-label="Calendar for <?= e(date('F Y', strtotime($monthStart))) ?>">
-            <div class="cal-head">
-                <h2><?= e(date('F Y', strtotime($monthStart))) ?> <span><?= e($churchLabel) ?></span></h2>
-                <div class="cal-head-tools">
-                    <?php if ($canManageSelected): ?>
-                        <a class="btn-new" href="event-form.php?church=<?= $churchId ?>"><?= ev_icon('plus', 15) ?> New Event</a>
-                    <?php endif; ?>
-                    <a class="cal-today" href="<?= cal_url(['month' => date('Y-m')]) ?>">Today</a>
-                    <a class="cal-arrow" href="<?= cal_url(['month' => $prevMonth]) ?>" aria-label="Previous month"><?= ev_icon('left', 16) ?></a>
-                    <a class="cal-arrow" href="<?= cal_url(['month' => $nextMonth]) ?>" aria-label="Next month"><?= ev_icon('right', 16) ?></a>
-                </div>
-            </div>
-
-            <div class="cal-grid" role="grid">
-                <?php foreach (['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as $dow): ?><div class="cal-dow" role="columnheader"><?= $dow ?></div><?php endforeach; ?>
-                <?php for ($d = $gridFrom; $d <= $gridTo; $d = date('Y-m-d', strtotime($d . ' +1 day'))):
-                    $items = $byDate[$d] ?? [];
-                    $cls = 'cal-cell' . (substr($d, 0, 7) !== $month ? ' is-other' : '') . ($d === $today ? ' is-today' : '') . ($d === $day ? ' is-selected' : '');
-                ?>
-                    <div class="<?= $cls ?>" role="gridcell">
-                        <a class="cal-daynum" href="<?= cal_url(['day' => $d, 'month' => substr($d, 0, 7) === $month ? $month : substr($d, 0, 7)]) ?>" aria-label="<?= e(date('l, j F', strtotime($d))) ?><?= $items ? ', ' . count($items) . ' events' : '' ?>"><?= (int)date('j', strtotime($d)) ?></a>
-                        <?php foreach (array_slice($items, 0, 3) as $it): $ev = $it['event']; ?>
-                            <a class="ev-chip <?= event_type_class($ev['event_type']) ?>" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $d ?>"
-                               title="<?= e($ev['title'] . ' · ' . event_time_text($ev) . ($churchId === 0 ? ' · ' . $ev['church_name'] : '')) ?>">
-                                <?php if (!$ev['is_all_day'] && $ev['start_time']): ?><b><?= e(fmt_time($ev['start_time'])) ?></b><?php endif; ?>
-                                <span><?= e($ev['title']) ?></span>
-                            </a>
-                        <?php endforeach; ?>
-                        <?php if (count($items) > 3): ?><a class="cal-more" href="<?= cal_url(['day' => $d]) ?>">+<?= count($items) - 3 ?> more</a><?php endif; ?>
-                        <?php if ($items): ?>
-                            <span class="cal-dots" aria-hidden="true"><?php foreach (array_slice($items, 0, 4) as $it): ?><i class="<?= event_type_class($it['event']['event_type']) ?>"></i><?php endforeach; ?></span>
-                        <?php endif; ?>
-                    </div>
-                <?php endfor; ?>
-            </div>
-            <?php
-            // Legend: the kinds of events that appear in this month's grid.
-            $legend = [];
-            foreach ($byDate as $items) foreach ($items as $it) $legend[event_type_class($it['event']['event_type'])] ??= $it['event']['event_type'];
-            ?>
-            <?php if ($legend): ?>
-                <div class="cal-legend" aria-label="Colour key">
-                    <?php foreach ($legend as $cls => $label): ?><span class="<?= $cls ?>"><i></i><?= e($label) ?></span><?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </section>
-
-        <aside class="up-card" aria-label="<?= $day ? 'Events on the selected day' : 'Upcoming events' ?>">
-            <?php if ($day): ?>
-                <div class="up-head"><h2><?= e(date('D, j M', strtotime($day))) ?></h2><a class="up-clear" href="<?= cal_url(['day' => '']) ?>">Show upcoming</a></div>
-                <?php if (!$dayList): ?><p class="up-empty">Nothing is scheduled for this day.</p><?php endif; ?>
-                <?php $groups = $dayList ? [$day => $dayList] : []; ?>
-            <?php else: ?>
-                <div class="up-head"><h2>Upcoming</h2><span class="week-badge">Week <?= (int)date('W') ?></span></div>
-                <?php if (!$upcoming): ?><p class="up-empty">No upcoming events<?= $filter ? ' in this filter' : '' ?>.</p><?php endif; ?>
-                <?php $groups = []; foreach ($upcoming as $u) $groups[$u['date']][] = $u; ?>
-            <?php endif; ?>
-
-            <?php foreach ($groups as $gDate => $items): ?>
-                <h3 class="up-day"><?= $gDate === $today ? 'Today, ' . strtoupper(date('M j', strtotime($gDate))) : strtoupper(date('D, M j', strtotime($gDate))) ?></h3>
-                <?php foreach ($items as $it): $ev = $it['event']; $reg = $ev['registration_required'] && !$ev['repeat_weekly']; ?>
-                    <div class="up-item <?= event_type_class($ev['event_type']) ?>">
-                        <a class="up-title" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $gDate ?>"><?= e($ev['title']) ?></a>
-                        <span class="up-meta"><?= $ev['is_all_day'] ? 'All Day' : e(fmt_time($ev['start_time'])) ?><?= $ev['location'] ? ' · ' . e($ev['location']) : '' ?></span>
-                        <?= countdown_badge($ev, $gDate) ?>
-                        <?php if ($churchId === 0): ?><span class="up-meta up-church"><?= e($ev['church_name']) ?></span><?php endif; ?>
-                        <?php if ($reg): ?><a class="up-reg" href="event.php?id=<?= (int)$ev['event_id'] ?>&amp;date=<?= $gDate ?>#register">Register &rarr;</a><?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-            <?php endforeach; ?>
-        </aside>
-    </div>
-
-<?php else: ?>
     <section class="ev-manage">
         <div class="mg-top">
             <h1>Event Management</h1>
@@ -480,7 +622,30 @@ include __DIR__ . '/includes/header.php';
 <?php endif; ?>
 </main>
 <script>
-document.getElementById('cal-church').addEventListener('change', function () {
+// "This week" summary: fetched after the page has loaded when it was not ready yet.
+(function () {
+    var box = document.getElementById('cx-ai');
+    if (!box || !box.classList.contains('is-loading')) return;
+    fetch(box.dataset.url.replace(/&amp;/g, '&'), { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+        .then(function (d) {
+            if (!d || !d.text) throw 0;
+            box.querySelector('.cx-ai-text').textContent = d.text;
+            box.querySelector('.cx-ai-range').textContent = d.range || '';
+            box.querySelector('.cx-ai-badge').hidden = !d.ai;
+            box.classList.remove('is-loading');
+        })
+        .catch(function () { box.hidden = true; });   // the calendar below still has everything
+})();
+// Tapping anywhere in a day box opens that day (links inside it still work as usual).
+document.querySelectorAll('.cx-cell[data-href]').forEach(function (cell) {
+    cell.addEventListener('click', function (ev) {
+        if (ev.target.closest('a')) return;
+        location.href = cell.dataset.href.replace(/&amp;/g, '&');
+    });
+});
+var calChurch = document.getElementById('cal-church');   // not there for a church admin (fixed church)
+if (calChurch) calChurch.addEventListener('change', function () {
     document.getElementById('cal-church-form').submit();
 });
 document.querySelectorAll('.rg-toggle').forEach(function (btn) {

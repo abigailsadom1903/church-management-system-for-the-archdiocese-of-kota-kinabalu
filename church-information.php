@@ -52,6 +52,10 @@ function icon(string $name, int $size = 16): string
         'fb'     => '<path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>',
         'whatsapp' => '<path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21"/><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1a5 5 0 0 0 5 5h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1"/>',
         'image-off' => '<line x1="2" x2="22" y1="2" y2="22"/><path d="M10.41 10.41a2 2 0 1 1-2.83-2.83"/><line x1="13.5" x2="6" y1="13.5" y2="21"/><line x1="18" x2="21" y1="12" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>',
+        'search' => '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+        'chevron' => '<path d="m9 18 6-6-6-6"/>',
+        'map'    => '<path d="M14.1 4.6a2 2 0 0 0-1.8 0L8.6 6.4a2 2 0 0 1-1.8 0L3.4 4.7A1 1 0 0 0 2 5.6v12.8a1 1 0 0 0 .6.9l4.2 2.1a2 2 0 0 0 1.8 0l3.7-1.8a2 2 0 0 1 1.8 0l4.2 2.1a1 1 0 0 0 1.4-.9V5.6a1 1 0 0 0-.6-.9z"/><path d="M15 5.8v15"/><path d="M9 3.2v15"/>',
+        'star'   => '<path d="M11.5 2.3a.5.5 0 0 1 .9 0l2.3 4.7a2 2 0 0 0 1.5 1.1l5.2.8a.5.5 0 0 1 .3.9l-3.8 3.6a2 2 0 0 0-.6 1.8l.9 5.2a.5.5 0 0 1-.8.6l-4.6-2.5a2 2 0 0 0-1.9 0l-4.6 2.5a.5.5 0 0 1-.8-.6l.9-5.2a2 2 0 0 0-.6-1.8L2.3 9.8a.5.5 0 0 1 .3-.9l5.2-.8a2 2 0 0 0 1.5-1.1z"/>',
         'church' => '<path d="m18 7 4 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9l4-2"/><path d="M14 22v-4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v4"/><path d="M18 22V5l-6-3-6 3v17"/><path d="M12 7v5"/><path d="M10 9h4"/>',
     ];
     return '<svg width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $paths[$name] . '</svg>';
@@ -127,6 +131,9 @@ const FIELD_MAP = [   // form field => column
      'website'     => 'church_website',
     'facebook'     => 'church_facebook',
     'whatsapp'     => 'church_whatsapp',
+    'history'      => 'church_history',
+    'history_source' => 'church_history_source',
+    'tour'         => 'church_virtual_tour',
 ];
 
 function go(string $url, string $msg): never
@@ -153,10 +160,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors['form'] = 'This church has donation records, so it cannot be deleted. Donation history is kept for the parish\'s accounts.';
             } elseif ($row) {
                 $priestPhotos = array_column(church_priests($pdo, $id), 'priest_photo');
+                $galleryFiles = [];
+                try { $g = $pdo->prepare('SELECT photo_file FROM church_gallery WHERE church_id = ?'); $g->execute([$id]); $galleryFiles = $g->fetchAll(PDO::FETCH_COLUMN); } catch (Throwable $ex) {}
                 $pdo->prepare('DELETE FROM church_info WHERE church_info_id = ?')->execute([$id]);
                 foreach ($priestPhotos as $pf) delete_priest_photo($pf);
+                foreach ($galleryFiles as $gf) if (preg_match('/^[\w.-]+$/', $gf)) @unlink(__DIR__ . '/uploads/church_gallery/' . $gf);
                 delete_uploaded_photo($row['church_photo']);
                 go('church-information.php', 'Church deleted.');
+            }
+        }
+    } elseif ($action === 'gallery') {
+        // Photo gallery: add a photo (with an optional caption) or remove one. Church admins of this church only.
+        $op   = $_POST['op'] ?? 'add';
+        $back = 'church-information.php?church=' . $id . '#gallery';
+        $gDir = __DIR__ . '/uploads/church_gallery';
+        if (!can_edit_church($id, $isSuper, $myChurchId)) {
+            $errors['form'] = 'You do not have permission to change this church.';
+        } elseif ($op === 'delete') {
+            $stmt = $pdo->prepare('SELECT photo_file FROM church_gallery WHERE photo_id = ? AND church_id = ?');
+            $stmt->execute([(int)($_POST['photo'] ?? 0), $id]);
+            $file = $stmt->fetchColumn();
+            if ($file !== false) {
+                $pdo->prepare('DELETE FROM church_gallery WHERE photo_id = ?')->execute([(int)$_POST['photo']]);
+                if (preg_match('/^[\w.-]+$/', $file) && is_file($gDir . '/' . $file)) @unlink($gDir . '/' . $file);
+            }
+            go($back, 'Photo removed from the gallery.');
+        } else {
+            $caption = trim((string)($_POST['caption'] ?? ''));
+            $f = $_FILES['gallery_photo'] ?? null;
+            $types = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'];
+            $count = $pdo->prepare('SELECT COUNT(*) FROM church_gallery WHERE church_id = ?');
+            $count->execute([$id]);
+            $info = $f && $f['error'] === UPLOAD_ERR_OK ? @getimagesize($f['tmp_name']) : false;
+            if ((int)$count->fetchColumn() >= 12) {
+                $errors['gallery'] = 'The gallery holds up to 12 photos. Please remove one first.';
+            } elseif (!$f || $f['error'] === UPLOAD_ERR_NO_FILE) {
+                $errors['gallery'] = 'Choose a photo to add.';
+            } elseif ($f['error'] !== UPLOAD_ERR_OK) {
+                $errors['gallery'] = 'The photo could not be uploaded. Please try again.';
+            } elseif ($f['size'] > 5 * 1024 * 1024) {
+                $errors['gallery'] = 'The photo must be 5 MB or smaller.';
+            } elseif (!$info || !isset($types[$info[2]])) {
+                $errors['gallery'] = 'Please choose a JPG, PNG or WebP image.';
+            } elseif (mb_strlen($caption) > 120) {
+                $errors['gallery'] = 'Please keep the caption under 120 characters.';
+            } else {
+                if (!is_dir($gDir)) mkdir($gDir, 0755, true);
+                $name = 'gallery-' . $id . '-' . bin2hex(random_bytes(6)) . '.' . $types[$info[2]];
+                if (move_uploaded_file($f['tmp_name'], $gDir . '/' . $name)) {
+                    $pdo->prepare('INSERT INTO church_gallery (church_id, photo_file, caption, sort_order)
+                                   SELECT ?, ?, ?, COALESCE(MAX(sort_order), 0) + 1 FROM church_gallery WHERE church_id = ?')
+                        ->execute([$id, $name, $caption === '' ? null : $caption, $id]);
+                    go($back, 'Photo added to the gallery.');
+                }
+                $errors['gallery'] = 'The photo could not be saved.';
             }
         }
     } elseif ($action === 'priest') {
@@ -274,17 +331,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $v = implode("\n", $lines);
                 }
                 $posted[$field] = $v;
-                $max = ['phone' => 50, 'address' => 255, 'hours' => 255, 'email' => 100, 'website' => 150, 'facebook' => 150, 'whatsapp' => 255][$field];
+                if ($field === 'history') {
+                    // keep paragraph breaks, drop extra blank lines
+                    $v = preg_replace('/\n{3,}/', "\n\n", str_replace("\r", '', $v));
+                    $posted[$field] = $v;
+                }
+                if ($field === 'tour' && $v !== '') {
+                    // The whole "Embed a map" code may be pasted: keep only the iframe's address.
+                    if (preg_match('/src\s*=\s*["\']([^"\']+)["\']/i', $v, $src)) $v = $src[1];
+                    $v = html_entity_decode(trim($v), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                    $posted[$field] = $v;
+                }
+                $max = ['phone' => 50, 'address' => 255, 'hours' => 255, 'email' => 100, 'website' => 150, 'facebook' => 150, 'whatsapp' => 255, 'history' => 4000, 'history_source' => 255, 'tour' => 1000][$field];
                 if (mb_strlen($v) > $max) {
                     $errors[$field] = "Please keep this under $max characters.";
                 } elseif ($v !== '' && $field === 'email' && !filter_var($v, FILTER_VALIDATE_EMAIL)) {
                     $errors[$field] = 'Enter a valid email address.';
                 } elseif ($v !== '' && $field === 'phone' && !preg_match('/^\+?[0-9][0-9\s\-()\/,]{4,}$/', $v)) {
                     $errors[$field] = 'Enter a valid phone number.';
-                } elseif ($v !== '' && in_array($field, ['website', 'facebook'], true) && web_url($v) === null) {
+                } elseif ($v !== '' && in_array($field, ['website', 'facebook', 'history_source'], true) && web_url($v) === null) {
                     $errors[$field] = 'Enter a valid web address.';
                 } elseif ($v !== '' && $field === 'whatsapp' && !whatsapp_url($v)) {
                     $errors[$field] = 'Paste the WhatsApp invite link, e.g. https://chat.whatsapp.com/AbC123...';
+                } elseif ($v !== '' && $field === 'tour' && !virtual_tour_url($v)) {
+                    $errors[$field] = 'Paste the code from Google Maps: open the 360° view, then Share > Embed a map > Copy HTML.';
+                } elseif ($v !== '' && $field === 'tour' && !empty($current['church_location_verified'])
+                          && ($tp = virtual_tour_point($v))
+                          && ($far = distance_m($tp[0], $tp[1], (float)$current['church_lat'], (float)$current['church_lng'])) > 300) {
+                    // Make sure the 360° view is really at this church, not a different place.
+                    $errors[$field] = 'This 360° view was taken ' . ($far >= 1000 ? number_format($far / 1000, 1) . ' km' : round($far) . ' m')
+                                    . ' away from the church. Please choose a 360° view at the church itself.';
                 }
                 $clean[$col] = $v === '' ? null : $v;
             }
@@ -345,12 +421,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $churches = $pdo->query('SELECT * FROM church_info ORDER BY church_name')->fetchAll();
 $byId = array_column($churches, null, 'church_info_id');
 
-// A Church Admin always sees their own church (no church picker for them).
-// Everyone else: ?church=ID, else the signed-in person's own parish, else the first church created.
+// A Church Admin always sees their own church. Everyone else first sees every church grouped by area,
+// and opens one by clicking it (?church=ID).
 $isOwnOnly  = $role === 'church_admin' && isset($byId[$myChurchId]);
-$selectedId = $isOwnOnly ? $myChurchId : pick_church_id($pdo, $byId, (int)($_GET['church'] ?? $_POST['church'] ?? 0));
+$requested  = (int)($_GET['church'] ?? $_POST['church'] ?? 0);
+$showList   = !$isOwnOnly && !isset($byId[$requested]);
+$selectedId = $isOwnOnly ? $myChurchId : ($showList ? 0 : $requested);
 $c = $byId[$selectedId] ?? null;
 $canEdit = $c && can_edit_church($selectedId, $isSuper, $myChurchId);
+
+if ($showList) {
+    $areaGroups = church_group_by_area($churches);
+    // the signed-in parishioner's own parish is marked in the list
+    $myParish = 0;
+    if ($role === 'user' && !empty($_SESSION['user_id'])) {
+        $st = $pdo->prepare('SELECT church_id FROM user WHERE user_id = ?');
+        $st->execute([(int)$_SESSION['user_id']]);
+        $myParish = (int)$st->fetchColumn();
+    }
+}
 
 if ($c) {
     // After a failed save, show what the admin typed instead of the stored values.
@@ -363,18 +452,155 @@ if ($c) {
     $website  = web_url($v('website', 'church_website'));
     $facebook = web_url($v('facebook', 'church_facebook'));
     $whatsapp = whatsapp_url($v('whatsapp', 'church_whatsapp'));
+    // photo gallery (interior, altar, feast days ...)
+    $gallery = [];
+    try {
+        $st = $pdo->prepare('SELECT photo_id, photo_file, caption FROM church_gallery WHERE church_id = ? ORDER BY sort_order, photo_id');
+        $st->execute([$selectedId]);
+        foreach ($st as $g) {
+            if (preg_match('/^[\w.-]+$/', $g['photo_file']) && is_file(__DIR__ . '/uploads/church_gallery/' . $g['photo_file'])) $gallery[] = $g;
+        }
+    } catch (Throwable $ex) { /* church_gallery.sql not run yet */ }
 }
 
-$pageTitle = 'Church Information';
+$pageTitle = $c ? $c['church_name'] . ' - Church Information' : 'Church Information';
 $activeNav = 'services';
 include __DIR__ . '/includes/header.php';
 ?>
-<main class="info-page">
-    <?php back_button('index.php#services', 'Back to Services'); ?>
+<main class="info-page<?= $showList ? ' is-list' . ($churches ? ' cd-page' : '') : ($c ? ' is-detail' . ($canEdit ? ' can-edit' : '') : '') ?>">
+<?php if ($showList && $churches):
+    $myChurch = $myParish && isset($byId[$myParish]) ? $byId[$myParish] : null;
+    $myArea = null;
+    foreach ($areaGroups as $g) foreach ($g['churches'] as $ch) if ($myChurch && (int)$ch['church_info_id'] === $myParish) $myArea = $g['tag'];
+?>
+    <!-- Every church, grouped by area, with a search box and area filters. Clicking a church opens its information. -->
+    <section class="cd-hero">
+        <?php back_button('index.php#services', 'Back to Services'); ?>
+        <div class="cd-hero-row">
+            <div class="cd-hero-text">
+                <span class="cd-eyebrow">Church directory</span>
+                <h1>Church Information</h1>
+                <p>Choose a church to see its priests, contact details, office hours and location.</p>
+            </div>
+            <div class="cd-stats">
+                <div><b><?= count($churches) ?></b><span>Churches</span></div>
+                <div><b><?= count($areaGroups) ?></b><span>Regions</span></div>
+            </div>
+        </div>
+        <div class="cd-tools">
+            <label class="cd-search">
+                <?= icon('search', 16) ?>
+                <input type="search" id="cd-q" placeholder="Search by church or town, e.g. Likas" autocomplete="off" aria-label="Search by church or town">
+            </label>
+            <?php if ($isSuper): ?><a class="btn-new" href="superadmin/church-form.php"><?= icon('plus', 16) ?> Add a church</a><?php endif; ?>
+        </div>
+        <div class="cd-chips" role="group" aria-label="Filter by region">
+            <button type="button" class="is-on" data-area="" aria-pressed="true">All regions</button>
+            <?php foreach ($areaGroups as $key => $g): ?>
+                <button type="button" data-area="<?= e($key) ?>" aria-pressed="false"><?= e($g['name']) ?></button>
+            <?php endforeach; ?>
+        </div>
+    </section>
+
+    <div class="cd-band">
+        <?php if ($flash): ?><div class="alert success info-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
+
+        <?php if ($myChurch): $myPhoto = church_photo_url($myChurch['church_photo']); ?>
+            <section class="cd-mine" aria-label="Your church">
+                <div class="cd-mine-photo<?= $myPhoto ? '' : ' is-empty' ?>">
+                    <?php if ($myPhoto): ?><img src="<?= e($myPhoto) ?>" alt="<?= e($myChurch['church_name']) ?>"><?php else: ?><?= icon('church', 44) ?><?php endif; ?>
+                </div>
+                <div class="cd-mine-body">
+                    <span class="cd-mine-flag"><?= icon('star', 11) ?> Your church</span>
+                    <h2><?= e($myChurch['church_name']) ?></h2>
+                    <p><?= icon('pin', 13) ?> <?= e($myChurch['church_location']) ?><?= $myArea ? ' &middot; ' . e($myArea) : '' ?></p>
+                    <div class="cd-mine-acts">
+                        <a class="cd-btn is-light" href="church-information.php?church=<?= $myParish ?>">View church details <?= icon('chevron', 14) ?></a>
+                        <a class="cd-btn is-ghost" href="profile.php">Change my church</a>
+                    </div>
+                </div>
+            </section>
+        <?php endif; ?>
+
+        <div class="cd-areas">
+            <?php foreach ($areaGroups as $key => $g): $n = count($g['churches']); ?>
+                <section class="cd-area" data-area="<?= e($key) ?>" aria-labelledby="ci-area-<?= e($key) ?>">
+                    <header class="cd-area-head">
+                        <span class="cd-area-ico"><?= icon('map', 15) ?></span>
+                        <span class="cd-area-t"><small><?= e($g['tag']) ?></small><h2 id="ci-area-<?= e($key) ?>"><?= e($g['name']) ?></h2></span>
+                        <span class="cd-area-line" aria-hidden="true"></span>
+                        <span class="cd-area-count"><?= $n ?> <?= $n === 1 ? 'church' : 'churches' ?></span>
+                    </header>
+                    <ul class="cd-grid">
+                        <?php foreach ($g['churches'] as $ch):
+                            $chId = (int)$ch['church_info_id'];
+                            $chPhoto = church_photo_url($ch['church_photo']);
+                            $mine = $chId === $myParish;
+                        ?>
+                            <li data-q="<?= e(mb_strtolower($ch['church_name'] . ' ' . $ch['church_location'])) ?>">
+                                <a class="cd-card<?= $mine ? ' is-mine' : '' ?>" href="church-information.php?church=<?= $chId ?>">
+                                    <span class="cd-photo<?= $chPhoto ? '' : ' is-empty' ?>">
+                                        <?php if ($chPhoto): ?><img src="<?= e($chPhoto) ?>" alt="" loading="lazy"><?php else: ?><?= icon('church', 20) ?><?php endif; ?>
+                                    </span>
+                                    <span class="cd-txt">
+                                        <?php if ($mine): ?><span class="cd-flag">Your church</span><?php endif; ?>
+                                        <span class="cd-name"><?= e($ch['church_name']) ?></span>
+                                        <span class="cd-town"><?= icon('pin', 11) ?> <?= e($ch['church_location']) ?></span>
+                                    </span>
+                                    <span class="cd-go" aria-hidden="true"><?= icon('chevron', 14) ?></span>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </section>
+            <?php endforeach; ?>
+        </div>
+        <p class="cd-none" hidden>No church matches your search. Try a town name such as <b>Penampang</b> or <b>Kudat</b>.</p>
+    </div>
+    <script>
+    (function () {
+        var q = document.getElementById('cd-q');
+        var chips = document.querySelectorAll('.cd-chips button');
+        var areas = document.querySelectorAll('.cd-area');
+        var none = document.querySelector('.cd-none');
+        var area = '';
+        function apply() {
+            var term = q.value.trim().toLowerCase();
+            var any = false;
+            areas.forEach(function (sec) {
+                var shown = 0;
+                sec.querySelectorAll('li[data-q]').forEach(function (li) {
+                    var hit = (!area || sec.dataset.area === area) && (!term || li.dataset.q.indexOf(term) !== -1);
+                    li.hidden = !hit;
+                    if (hit) shown++;
+                });
+                sec.hidden = shown === 0;
+                if (shown) any = true;
+            });
+            none.hidden = any;
+        }
+        q.addEventListener('input', apply);
+        chips.forEach(function (b) {
+            b.addEventListener('click', function () {
+                area = b.dataset.area;
+                chips.forEach(function (c) { var on = c === b; c.classList.toggle('is-on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+                apply();
+            });
+        });
+    })();
+    </script>
+<?php else: ?>
+    <?php if ($c && !$isOwnOnly): ?>
+        <?php back_button('church-information.php', 'All churches'); ?>
+    <?php else: ?>
+        <?php back_button('index.php#services', 'Back to Services'); ?>
+    <?php endif; ?>
+    <?php if (!$c): ?>
     <header class="page-heading">
         <h1>Church Information</h1>
-        <p>Contact details, office hours and location for every parish.</p>
+        <p>Choose a church to see its priests, contact details, office hours and location.</p>
     </header>
+    <?php endif; ?>
     <?php if ($isSuper): ?>
         <div class="info-top-tools"><a class="btn-new" href="superadmin/church-form.php"><?= icon('plus', 16) ?> Add a church</a></div>
     <?php endif; ?>
@@ -383,20 +609,26 @@ include __DIR__ . '/includes/header.php';
     <?php if (isset($errors['form'])): ?><div class="alert info-alert" role="alert"><?= e($errors['form']) ?></div><?php endif; ?>
     <?php if ($errors && !isset($errors['form'])): ?><div class="alert info-alert" role="alert">Some changes were not saved. Please check the highlighted fields.</div><?php endif; ?>
 
-<?php if (!$c): ?>
+<?php if (!$churches): ?>
     <p class="dir-empty">No churches have been added yet.</p>
-<?php else: ?>
+<?php elseif ($c): ?>
+    <div class="info-main">
     <?php if ($canEdit): ?>
         <p class="admin-badge"><?= $isSuper ? 'Super Admin' : 'Church Admin' ?> &middot; you can edit this church</p>
     <?php endif; ?>
 
-    <section class="info-hero">
+    <!-- Banner: the church photo across the full width, with the town and name over it -->
+    <section class="ci-hero">
         <div class="hero-photo" id="hero-photo">
             <?php if ($photoUrl): ?>
                 <img src="<?= e($photoUrl) ?>" alt="<?= e($c['church_name']) ?>">
             <?php else: ?>
                 <div class="info-photo-fallback" aria-hidden="true"><?= icon('church', 56) ?></div>
             <?php endif; ?>
+            <div class="ci-hero-text">
+                <p class="ci-hero-town"><?= e($posted['town'] ?? $c['church_location']) ?></p>
+                <h1><?= e($posted['name'] ?? $c['church_name']) ?></h1>
+            </div>
             <?php if ($canEdit): ?>
                 <div class="photo-drop-hint" aria-hidden="true"><?= icon('plus', 22) ?><span>Drop photo here</span></div>
                 <div class="photo-actions">
@@ -412,27 +644,14 @@ include __DIR__ . '/includes/header.php';
         </div>
         <?php if ($canEdit): ?><p class="photo-hint">Drag a photo onto the picture, or use <?= $photoUrl ? 'the pencil' : 'the + button' ?> to browse for one.</p><?php endif; ?>
         <?php if (isset($errors['photo'])): ?><p class="row-error photo-error"><?= e($errors['photo']) ?></p><?php endif; ?>
-        <h2><?= e($posted['name'] ?? $c['church_name']) ?></h2>
-        <p class="info-town"><?= e($posted['town'] ?? $c['church_location']) ?></p>
     </section>
 
-    <?php if (!$isOwnOnly): ?>
-    <form method="get" action="church-information.php" class="info-select" id="church-form">
-        <label for="church">Select Church</label>
-        <div class="select-wrap">
-            <select id="church" name="church">
-                <?php foreach ($churches as $ch): ?>
-                    <option value="<?= (int)$ch['church_info_id'] ?>" <?= (int)$ch['church_info_id'] === $selectedId ? 'selected' : '' ?>><?= e($ch['church_name']) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <noscript><button type="submit" class="btn-primary">Show</button></noscript>
-        </div>
-    </form>
-    <?php endif; ?>
 
     <form method="post" action="church-information.php" enctype="multipart/form-data" id="admin-form" novalidate>
         <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
         <input type="hidden" name="church" value="<?= (int)$selectedId ?>">
+        <div class="ci-layout">
+        <div class="ci-col-main">
 
         <?php if ($isSuper && $canEdit): ?>
         <section class="info-card">
@@ -455,6 +674,215 @@ include __DIR__ . '/includes/header.php';
             </ul>
         </section>
         <?php endif; ?>
+
+        <?php
+        $history = $v('history', 'church_history');
+        $histSrc = $v('history_source', 'church_history_source');
+        $histUrl = web_url($histSrc);
+        ?>
+        <?php if ($history !== '' || $canEdit): ?>
+        <section class="info-card ci-history" id="history-card">
+            <h3>History
+                <?php if ($canEdit): ?><button type="button" class="ico-btn card-edit" data-edit-all title="Edit all" aria-label="Edit the history"><?= icon('edit', 16) ?></button><?php endif; ?>
+            </h3>
+            <ul class="info-rows">
+                <?php
+                info_row($canEdit, [
+                    'field' => 'history', 'label' => $canEdit ? 'History' : '', 'has' => $history !== '', 'editing' => isset($errors['history']), 'error' => $errors['history'] ?? '',
+                    'class' => 'ch-row',
+                    'view' => '<div class="ch-body">' . church_history_html($history) . '</div>',
+                    'input' => '<textarea name="history" rows="12" maxlength="4000" placeholder="A few sentences about the parish, then one line per milestone, e.g.&#10;1903 – Mission founded by Fr Henry van der Heyden&#10;1981 – Present church dedicated">' . e($history) . '</textarea>',
+                ]);
+                info_row($canEdit, [
+                    'field' => 'history_source', 'label' => $canEdit ? 'Source' : '', 'has' => $histUrl !== null, 'editing' => isset($errors['history_source']), 'error' => $errors['history_source'] ?? '',
+                    'class' => 'ch-source',
+                    'view' => 'Summarised from <a class="row-val" href="' . e((string)$histUrl) . '" target="_blank" rel="noopener">' . e(preg_replace('~^https?://(www\.)?~', '', rtrim($histSrc, '/'))) . '</a>',
+                    'input' => '<input type="text" name="history_source" maxlength="255" placeholder="https://www.catholicadkk.org/..." value="' . e($histSrc) . '">',
+                ]);
+                ?>
+            </ul>
+        </section>
+        <?php endif; ?>
+
+        <?php if ($gallery || $canEdit): ?>
+        <!-- Photo gallery: one large photo with arrows and its caption, thumbnails underneath -->
+        <section class="info-card ci-gallery" id="gallery">
+            <h3>Gallery<?php if ($gallery): ?> <span class="gal-count"><?= count($gallery) ?> <?= count($gallery) === 1 ? 'photo' : 'photos' ?></span><?php endif; ?></h3>
+            <?php if (isset($errors['gallery'])): ?><p class="row-error gal-error"><?= e($errors['gallery']) ?></p><?php endif; ?>
+            <?php if ($gallery): ?>
+                <div class="gal" data-gallery>
+                    <div class="gal-stage">
+                        <?php foreach ($gallery as $i => $g): ?>
+                            <figure class="gal-slide<?= $i === 0 ? ' is-active' : '' ?>"<?= $i === 0 ? '' : ' hidden' ?>>
+                                <img src="uploads/church_gallery/<?= e($g['photo_file']) ?>" alt="<?= e($g['caption'] ?: $c['church_name'] . ' photo ' . ($i + 1)) ?>" loading="<?= $i === 0 ? 'eager' : 'lazy' ?>">
+                                <?php if ($g['caption']): ?><figcaption><?= e($g['caption']) ?></figcaption><?php endif; ?>
+                            </figure>
+                        <?php endforeach; ?>
+                        <?php if (count($gallery) > 1): ?>
+                            <button type="button" class="gal-nav is-prev" aria-label="Previous photo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+                            <button type="button" class="gal-nav is-next" aria-label="Next photo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+                        <?php endif; ?>
+                    </div>
+                    <?php if (count($gallery) > 1 || $canEdit): ?>
+                        <ul class="gal-thumbs">
+                            <?php foreach ($gallery as $i => $g): ?>
+                                <li>
+                                    <button type="button" class="gal-thumb<?= $i === 0 ? ' is-active' : '' ?>" data-index="<?= $i ?>" aria-label="Show photo <?= $i + 1 ?><?= $g['caption'] ? ': ' . e($g['caption']) : '' ?>"><img src="uploads/church_gallery/<?= e($g['photo_file']) ?>" alt="" loading="lazy"></button>
+                                    <?php if ($canEdit): ?>
+                                        <button type="submit" form="gd-<?= (int)$g['photo_id'] ?>" class="gal-del" data-confirm="Remove this photo from the gallery? This cannot be undone." title="Remove photo" aria-label="Remove photo <?= $i + 1 ?>"><?= icon('trash', 12) ?></button>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </div>
+            <?php else: ?>
+                <p class="info-missing">No photos yet. Add photos of the interior, the altar or feast days.</p>
+            <?php endif; ?>
+            <?php if ($canEdit && count($gallery) < 12): ?>
+                <div class="gal-add">
+                    <label class="gal-file"><?= icon('plus', 14) ?> <span>Choose photo</span>
+                        <input type="file" name="gallery_photo" form="gallery-add" accept="image/jpeg,image/png,image/webp" required hidden>
+                    </label>
+                    <input type="text" name="caption" form="gallery-add" maxlength="120" placeholder="Caption, e.g. Altar or Feast day 2025 (optional)" aria-label="Caption">
+                    <button type="submit" form="gallery-add" class="btn-save">Add to gallery</button>
+                </div>
+            <?php endif; ?>
+        </section>
+        <?php endif; ?>
+
+        <?php
+        $tourRaw = $v('tour', 'church_virtual_tour');
+        $tourUrl = virtual_tour_url($tourRaw);
+        // Street View only where the church's map point has been checked to be at the church; otherwise Google Maps
+        // is asked for the church by name, which opens the church itself (with its photos and 360° views).
+        $locOk = !empty($c['church_location_verified']) && $c['church_lat'] !== null && $c['church_lng'] !== null;
+        $svUrl = $locOk ? street_view_url((float)$c['church_lat'], (float)$c['church_lng']) : null;
+        $placeUrl = 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($mapQuery);
+        ?>
+        <!-- 360° virtual tour: Google Maps' own 360° view of the church, or a way to look around it on Google Maps -->
+        <section class="info-card ci-tour" id="virtual-tour">
+            <h3><span class="tour-head"><span class="tour-badge" aria-hidden="true">360°</span>Virtual Tour</span>
+                <?php if ($canEdit): ?><button type="button" class="ico-btn card-edit" data-edit-all title="Edit" aria-label="Edit the virtual tour"><?= icon('edit', 16) ?></button><?php endif; ?>
+            </h3>
+            <?php if ($tourUrl): ?>
+                <div class="tour-frame">
+                    <iframe src="<?= e($tourUrl) ?>" title="360° view of <?= e($c['church_name']) ?>" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"
+                            allow="fullscreen; accelerometer; gyroscope; xr-spatial-tracking"></iframe>
+                </div>
+                <p class="tour-hint">Drag to look around. Use the full-screen button, or move your phone, to step inside.</p>
+            <?php else: ?>
+                <div class="tour-empty">
+                    <span class="tour-empty-ico" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.2"/><path d="M9.5 21v-6l-1.5-1V10a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4l-1.5 1v6"/><path d="M4 16.5c-1.3.6-2 1.3-2 2C2 20 6.5 21.5 12 21.5S22 20 22 18.5c0-.7-.7-1.4-2-2"/></svg></span>
+                    <p><?= $svUrl
+                        ? 'Look around ' . e($c['church_name']) . ' in Google Street View&rsquo;s 360&deg; view, right at the church.'
+                        : 'See ' . e($c['church_name']) . ' on Google Maps, with its photos and any 360&deg; views people have shared.' ?></p>
+                </div>
+            <?php endif; ?>
+            <p class="tour-actions">
+                <?php if ($svUrl): ?>
+                    <a class="btn-streetview" href="<?= e($svUrl) ?>" target="_blank" rel="noopener"><?= icon('pin', 15) ?> Look around in Street View</a>
+                <?php else: ?>
+                    <a class="btn-streetview" href="<?= e($placeUrl) ?>" target="_blank" rel="noopener"><?= icon('pin', 15) ?> Find on Google Maps</a>
+                <?php endif; ?>
+            </p>
+            <?php if ($canEdit): ?>
+                <ul class="info-rows">
+                    <?php
+                    info_row($canEdit, [
+                        'field' => 'tour', 'label' => '360° view from Google Maps', 'has' => $tourUrl !== null, 'editing' => isset($errors['tour']), 'error' => $errors['tour'] ?? '',
+                        'class' => 'tour-row',
+                        'view' => '<span class="row-val">A 360° view is showing above.</span>',
+                        'input' => '<textarea name="tour" rows="3" maxlength="1000" placeholder="Paste the code from Google Maps here">' . e($tourRaw) . '</textarea>'
+                                 . '<span class="tour-how">On Google Maps, open the church\'s 360° view (Street View or a 360° photo), click <b>Share</b> &rsaquo; <b>Embed a map</b> &rsaquo; <b>Copy HTML</b>, and paste it here.</span>',
+                    ]);
+                    ?>
+                </ul>
+            <?php endif; ?>
+        </section>
+
+        </div>
+
+        <aside class="ci-col-side">
+        <section class="info-card" id="contact-card">
+            <h3>Contact
+                <?php if ($canEdit): ?><button type="button" class="ico-btn card-edit" data-edit-all title="Edit all" aria-label="Edit all contact details"><?= icon('edit', 16) ?></button><?php endif; ?>
+            </h3>
+            <ul class="info-rows">
+                <?php
+                $phone = $v('phone', 'church_contact_details');
+                info_row($canEdit, [
+                    'field' => 'phone', 'label' => 'Phone', 'has' => $phone !== '', 'editing' => isset($errors['phone']), 'error' => $errors['phone'] ?? '',
+                    'icon' => '<span class="row-ico">' . icon('phone', 18) . '</span>',
+                    'view' => '<a class="row-val" href="tel:' . e(preg_replace('/[^\d+]/', '', preg_split('/[\/,;]/', $phone)[0])) . '">' . e($phone) . '</a>',
+                    'input' => '<input type="text" name="phone" maxlength="50" placeholder="+60 88-000 000" value="' . e($phone) . '">',
+                ]);
+
+                $email = $v('email', 'church_email');
+                info_row($canEdit, [
+                    'field' => 'email', 'label' => 'Email', 'has' => $email !== '', 'editing' => isset($errors['email']), 'error' => $errors['email'] ?? '',
+                    'icon' => '<span class="row-ico">' . icon('mail', 18) . '</span>',
+                    'view' => '<a class="row-val" href="mailto:' . e($email) . '">' . e($email) . '</a>',
+                    'input' => '<input type="email" name="email" maxlength="100" placeholder="office@example.org" value="' . e($email) . '">',
+                ]);
+
+                $webRaw = $v('website', 'church_website');
+                info_row($canEdit, [
+                    'field' => 'website', 'label' => 'Website', 'has' => $website !== null, 'editing' => isset($errors['website']), 'error' => $errors['website'] ?? '',
+                    'icon' => '<span class="row-ico">' . icon('globe', 18) . '</span>',
+                    'view' => '<a class="row-val" href="' . e((string)$website) . '" target="_blank" rel="noopener">' . e(short_url($webRaw)) . '</a>',
+                    'input' => '<input type="text" name="website" maxlength="150" placeholder="www.example.org" value="' . e($webRaw) . '">',
+                ]);
+
+                $fbRaw = $v('facebook', 'church_facebook');
+                info_row($canEdit, [
+                    'field' => 'facebook', 'label' => 'Facebook', 'has' => $facebook !== null, 'editing' => isset($errors['facebook']), 'error' => $errors['facebook'] ?? '',
+                    'icon' => '<span class="row-ico">' . icon('fb', 18) . '</span>',
+                    'view' => '<a class="row-val" href="' . e((string)$facebook) . '" target="_blank" rel="noopener">' . e(short_url($fbRaw)) . '</a>',
+                    'input' => '<input type="text" name="facebook" maxlength="150" placeholder="facebook.com/yourpage" value="' . e($fbRaw) . '">',
+                ]);
+
+                $waRaw = $v('whatsapp', 'church_whatsapp');
+                info_row($canEdit, [
+                    'field' => 'whatsapp', 'label' => 'WhatsApp Community', 'has' => $whatsapp !== null, 'editing' => isset($errors['whatsapp']), 'error' => $errors['whatsapp'] ?? '',
+                    'icon' => '<span class="row-ico is-wa">' . icon('whatsapp', 18) . '</span>',
+                    'view' => '<a class="btn-wa" href="' . e((string)$whatsapp) . '" target="_blank" rel="noopener">' . icon('whatsapp', 16) . ' Join our WhatsApp Community</a>',
+                    'input' => '<input type="url" name="whatsapp" maxlength="255" placeholder="https://chat.whatsapp.com/..." value="' . e($waRaw) . '">',
+                ]);
+                ?>
+            </ul>
+            <?php if (!$canEdit && $phone === '' && $email === '' && !$website && !$facebook && !$whatsapp): ?>
+                <p class="info-missing">More contact details for this parish will be added soon.</p>
+            <?php endif; ?>
+        </section>
+
+        <?php
+        $hours = $v('hours', 'church_office_hours');
+        $ohWeek = $hours !== '' ? office_hours_schedule($hours) : null;   // read from the text, for the open / closed pill
+        $ohNow = office_status($ohWeek);
+        ?>
+        <?php if ($hours !== '' || $canEdit): ?>
+        <section class="info-card" id="hours-card">
+            <h3>Office Hours
+                <?php if ($canEdit): ?><button type="button" class="ico-btn card-edit" data-edit-all title="Edit all" aria-label="Edit the office hours"><?= icon('edit', 16) ?></button><?php endif; ?>
+            </h3>
+            <?php if ($ohNow): ?>
+                <p class="oh-status"><span class="oh-pill <?= $ohNow['open'] ? 'is-open' : 'is-closed' ?>" id="oh-pill" data-week="<?= e(json_encode($ohWeek)) ?>" title="Based on the current time in Malaysia"><span class="oh-dot" aria-hidden="true"></span><span class="oh-text"><?= e($ohNow['text']) ?></span></span></p>
+            <?php endif; ?>
+            <ul class="info-rows">
+                <?php
+                info_row($canEdit, [
+                    'field' => 'hours', 'label' => 'Office Hours', 'has' => $hours !== '', 'editing' => isset($errors['hours']), 'error' => $errors['hours'] ?? '',
+                    'icon' => '<span class="row-ico">' . icon('clock', 18) . '</span>',
+                    'view' => church_hours_html($hours),
+                    'input' => '<textarea name="hours" rows="3" maxlength="255" placeholder="One line per day, e.g.&#10;Mon - Fri: 8:30 AM - 4:30 PM&#10;Sun: Closed">' . e($hours) . '</textarea>',
+                ]);
+                ?>
+            </ul>
+        </section>
+        <?php endif; ?>
+        </aside>
+        </div>
 
         <section class="info-card" id="priests">
             <h3><?= count($priests) > 1 ? 'Priests' : 'Parish Priest' ?>
@@ -484,7 +912,8 @@ include __DIR__ . '/includes/header.php';
                     $photo = priest_photo_url($p['priest_photo']);
                     $showNew = $reopen || !$priests;   // the empty "add" row is open straight away when there are no priests yet
                 ?>
-                    <li class="priest-row<?= $reopen || ($isNew && $showNew) ? ' is-editing' : '' ?><?= $isNew ? ' is-new' : '' ?>"<?= $isNew && !$showNew ? ' hidden' : '' ?> data-priest="<?= e((string)$key) ?>"
+                    <?php $away = !$isNew && preg_match('/\b(study leave|on leave|sabbatical|retired|emeritus)\b/i',(string)$p['priest_title']);   // not actively serving: shown muted ?>
+                    <li class="priest-row<?= $reopen || ($isNew && $showNew) ? ' is-editing' : '' ?><?= $isNew ? ' is-new' : '' ?><?= $away ? ' is-away' : '' ?>"<?= $isNew && !$showNew ? ' hidden' : '' ?> data-priest="<?= e((string)$key) ?>"
                         <?php if (!$isNew): // what the pop-up shows when the priest is clicked ?>
                             data-name="<?= e($p['priest_name']) ?>" data-title="<?= e((string)$p['priest_title']) ?>" data-photo="<?= e((string)$photo) ?>"
                             data-dob="<?= e($longDate($p['priest_dob'] ?? null)) ?>" data-ordained="<?= e($longDate($p['priest_ordained'] ?? null)) ?>" data-details="<?= e((string)($p['priest_details'] ?? '')) ?>"
@@ -543,24 +972,20 @@ include __DIR__ . '/includes/header.php';
             </ul>
         </section>
 
-        <section class="info-card" id="contact-card">
-            <h3>Contact &amp; Location
-                <?php if ($canEdit): ?><button type="button" class="ico-btn card-edit" data-edit-all title="Edit all" aria-label="Edit all contact details"><?= icon('edit', 16) ?></button><?php endif; ?>
+        <section class="info-card" id="location-card">
+            <h3>Location
+                <?php if ($canEdit): ?><button type="button" class="ico-btn card-edit" data-edit-all title="Edit all" aria-label="Edit the address"><?= icon('edit', 16) ?></button><?php endif; ?>
             </h3>
             <ul class="info-rows">
                 <?php
-                $phone = $v('phone', 'church_contact_details');
-                info_row($canEdit, [
-                    'field' => 'phone', 'label' => 'Phone', 'has' => $phone !== '', 'editing' => isset($errors['phone']), 'error' => $errors['phone'] ?? '',
-                    'icon' => '<span class="row-ico">' . icon('phone', 18) . '</span>',
-                    'view' => '<a class="row-val" href="tel:' . e(preg_replace('/[^\d+]/', '', preg_split('/[\/,;]/', $phone)[0])) . '">' . e($phone) . '</a>',
-                    'input' => '<input type="text" name="phone" maxlength="50" placeholder="+60 88-000 000" value="' . e($phone) . '">',
-                ]);
-
                 // Address is always shown: with no street address it falls back to the town so the map still works.
                 $mapHtml = '<div class="info-map"><iframe title="Map of ' . e($c['church_name']) . '" loading="lazy" allowfullscreen src="https://www.google.com/maps?q='
                          . e(rawurlencode($mapQuery)) . '&amp;z=16&amp;output=embed"></iframe></div>';
-                $mapLink = '<a class="map-link" href="https://www.google.com/maps/search/?api=1&amp;query=' . e(rawurlencode($mapQuery)) . '" target="_blank" rel="noopener">Open in Google Maps</a>';
+                // (Google's map already has its own "Open in Maps" box, so ours goes straight to turn-by-turn directions.)
+                $destination = !empty($c['church_location_verified']) ? $c['church_lat'] . ',' . $c['church_lng'] : $mapQuery;   // the checked map point when there is one
+                $mapLink = '<a class="btn-directions" href="https://www.google.com/maps/dir/?api=1&amp;destination=' . e(rawurlencode($destination)) . '" target="_blank" rel="noopener">'
+                         . '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>'
+                         . 'Get directions</a>';
                 info_row($canEdit, [
                     'field' => 'address', 'label' => 'Address', 'has' => true, 'editing' => isset($errors['address']), 'error' => $errors['address'] ?? '',
                     'deletable' => $address !== '',
@@ -569,52 +994,10 @@ include __DIR__ . '/includes/header.php';
                     'input' => '<input type="text" name="address" maxlength="255" placeholder="Street address, town, postcode" value="' . e($address) . '">',
                     'extra' => $mapHtml . $mapLink,
                 ]);
-
-                $hours = $v('hours', 'church_office_hours');
-                info_row($canEdit, [
-                    'field' => 'hours', 'label' => 'Office Hours', 'has' => $hours !== '', 'editing' => isset($errors['hours']), 'error' => $errors['hours'] ?? '',
-                    'icon' => '<span class="row-ico">' . icon('clock', 18) . '</span>',
-                    'view' => '<span class="row-val">' . nl2br(e($hours)) . '</span>',
-                    'input' => '<textarea name="hours" rows="3" maxlength="255" placeholder="One line per day, e.g.&#10;Mon - Fri: 8:30 AM - 4:30 PM&#10;Sun: Closed">' . e($hours) . '</textarea>',
-                ]);
-
-                $email = $v('email', 'church_email');
-                info_row($canEdit, [
-                    'field' => 'email', 'label' => 'Email', 'has' => $email !== '', 'editing' => isset($errors['email']), 'error' => $errors['email'] ?? '',
-                    'icon' => '<span class="row-ico">' . icon('mail', 18) . '</span>',
-                    'view' => '<a class="row-val" href="mailto:' . e($email) . '">' . e($email) . '</a>',
-                    'input' => '<input type="email" name="email" maxlength="100" placeholder="office@example.org" value="' . e($email) . '">',
-                ]);
-
-                $webRaw = $v('website', 'church_website');
-                info_row($canEdit, [
-                    'field' => 'website', 'label' => 'Website', 'has' => $website !== null, 'editing' => isset($errors['website']), 'error' => $errors['website'] ?? '',
-                    'icon' => '<span class="row-ico">' . icon('globe', 18) . '</span>',
-                    'view' => '<a class="row-val" href="' . e((string)$website) . '" target="_blank" rel="noopener">' . e($webRaw) . '</a>',
-                    'input' => '<input type="text" name="website" maxlength="150" placeholder="www.example.org" value="' . e($webRaw) . '">',
-                ]);
-
-                $fbRaw = $v('facebook', 'church_facebook');
-                info_row($canEdit, [
-                    'field' => 'facebook', 'label' => 'Facebook', 'has' => $facebook !== null, 'editing' => isset($errors['facebook']), 'error' => $errors['facebook'] ?? '',
-                    'icon' => '<span class="row-ico">' . icon('fb', 18) . '</span>',
-                    'view' => '<a class="row-val" href="' . e((string)$facebook) . '" target="_blank" rel="noopener">' . e($fbRaw) . '</a>',
-                    'input' => '<input type="text" name="facebook" maxlength="150" placeholder="facebook.com/yourpage" value="' . e($fbRaw) . '">',
-                ]);
-
-                $waRaw = $v('whatsapp', 'church_whatsapp');
-                info_row($canEdit, [
-                    'field' => 'whatsapp', 'label' => 'WhatsApp Community', 'has' => $whatsapp !== null, 'editing' => isset($errors['whatsapp']), 'error' => $errors['whatsapp'] ?? '',
-                    'icon' => '<span class="row-ico is-wa">' . icon('whatsapp', 18) . '</span>',
-                    'view' => '<a class="btn-wa" href="' . e((string)$whatsapp) . '" target="_blank" rel="noopener">' . icon('whatsapp', 16) . ' Join our WhatsApp Community</a>',
-                    'input' => '<input type="url" name="whatsapp" maxlength="255" placeholder="https://chat.whatsapp.com/..." value="' . e($waRaw) . '">',
-                ]);
                 ?>
             </ul>
+        </section>
 
-            <?php if (!$canEdit && $phone === '' && $hours === '' && $email === '' && !$website && !$facebook && !$whatsapp): ?>
-                <p class="info-missing">More contact details for this parish will be added soon.</p>
-            <?php endif; ?>
 
             <?php if ($canEdit): ?>
                 <div class="save-bar" id="save-bar" <?= $errors ? '' : 'hidden' ?>>
@@ -622,8 +1005,25 @@ include __DIR__ . '/includes/header.php';
                     <button type="submit" class="btn-save">Save Changes</button>
                 </div>
             <?php endif; ?>
-        </section>
     </form>
+
+    <?php if ($canEdit): ?>
+        <form method="post" action="church-information.php" enctype="multipart/form-data" id="gallery-add" hidden novalidate>
+            <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
+            <input type="hidden" name="action" value="gallery">
+            <input type="hidden" name="op" value="add">
+            <input type="hidden" name="church" value="<?= (int)$selectedId ?>">
+        </form>
+        <?php foreach ($gallery as $g): ?>
+            <form method="post" action="church-information.php" id="gd-<?= (int)$g['photo_id'] ?>" hidden>
+                <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
+                <input type="hidden" name="action" value="gallery">
+                <input type="hidden" name="op" value="delete">
+                <input type="hidden" name="church" value="<?= (int)$selectedId ?>">
+                <input type="hidden" name="photo" value="<?= (int)$g['photo_id'] ?>">
+            </form>
+        <?php endforeach; ?>
+    <?php endif; ?>
 
     <?php if ($canEdit): foreach (array_merge(array_column($priests, 'priest_id'), ['new']) as $pk): ?>
         <form method="post" action="church-information.php" enctype="multipart/form-data" id="pf-<?= e((string)$pk) ?>" hidden novalidate>
@@ -656,16 +1056,71 @@ include __DIR__ . '/includes/header.php';
             </form>
         </section>
     <?php endif; ?>
+    </div>
 <?php endif; ?>
+<?php endif; /* list or detail */ ?>
 </main>
 <script>
 (function () {
     var form = document.getElementById('admin-form');
     var bar = document.getElementById('save-bar');
 
-    document.getElementById('church')?.addEventListener('change', function () {
-        document.getElementById('church-form').submit();
+    // Gallery: arrows, thumbnails and the left / right keys move between photos.
+    document.querySelectorAll('[data-gallery]').forEach(function (gal) {
+        var slides = gal.querySelectorAll('.gal-slide'), thumbs = gal.querySelectorAll('.gal-thumb'), at = 0;
+        function show(i) {
+            at = (i + slides.length) % slides.length;
+            slides.forEach(function (s, n) { s.hidden = n !== at; s.classList.toggle('is-active', n === at); });
+            thumbs.forEach(function (t, n) { t.classList.toggle('is-active', n === at); if (n === at) t.setAttribute('aria-current', 'true'); else t.removeAttribute('aria-current'); });
+        }
+        var prev = gal.querySelector('.gal-nav.is-prev'), next = gal.querySelector('.gal-nav.is-next');
+        if (prev) prev.addEventListener('click', function () { show(at - 1); });
+        if (next) next.addEventListener('click', function () { show(at + 1); });
+        thumbs.forEach(function (t) { t.addEventListener('click', function () { show(+t.dataset.index); }); });
+        gal.addEventListener('keydown', function (ev) {
+            if (ev.key === 'ArrowLeft') { show(at - 1); ev.preventDefault(); }
+            if (ev.key === 'ArrowRight') { show(at + 1); ev.preventDefault(); }
+        });
     });
+    // Gallery upload: show the chosen file's name on the button.
+    document.querySelectorAll('.gal-file input[type="file"]').forEach(function (input) {
+        input.addEventListener('change', function () {
+            input.closest('.gal-file').querySelector('span').textContent = input.files[0] ? input.files[0].name : 'Choose photo';
+        });
+    });
+
+    // Office Hours pill: recalculated every minute from Malaysia time, so it stays right while the page is open.
+    var ohPill = document.getElementById('oh-pill');
+    if (ohPill && window.Intl) {
+        var ohWeek = JSON.parse(ohPill.dataset.week), ohNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        var ohFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'short', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });
+        var ohLabel = function (m) { var h = Math.floor(m / 60) % 24, mm = m % 60; return (h % 12 || 12) + (mm ? ':' + (mm < 10 ? '0' : '') + mm : '') + ' ' + (h < 12 ? 'AM' : 'PM'); };
+        var ohUpdate = function () {
+            var p = {}; ohFmt.formatToParts(new Date()).forEach(function (x) { p[x.type] = x.value; });
+            var day = ohNames.indexOf(p.weekday), min = (+p.hour % 24) * 60 + +p.minute, text = null, open = false;
+            (ohWeek[day] || []).forEach(function (r) { if (!text && min >= r[0] && min < r[1]) { open = true; text = 'Open now · closes ' + ohLabel(r[1]); } });
+            for (var i = 0; !text && i < 8; i++) {
+                var d = (day - 1 + i) % 7 + 1;
+                (ohWeek[d] || []).forEach(function (r) {
+                    if (text || (i === 0 && r[0] <= min)) return;
+                    text = 'Closed · opens ' + ohLabel(r[0]) + ' ' + (i === 0 ? 'today' : i === 1 ? 'tomorrow' : ohNames[d]);
+                });
+            }
+            if (!text) return;
+            ohPill.querySelector('.oh-text').textContent = text;
+            ohPill.className = 'oh-pill ' + (open ? 'is-open' : 'is-closed');
+        };
+        ohUpdate();
+        setInterval(ohUpdate, 60000);
+    }
+
+    // Banner: a photo shown narrower than 520px gets its town and name underneath instead of over it.
+    var heroBox = document.querySelector('.ci-hero .hero-photo'), heroImg = heroBox && heroBox.querySelector('img');
+    if (heroImg) {
+        var fitHero = function () { heroBox.classList.toggle('is-narrow', heroImg.getBoundingClientRect().width < 520); };
+        if (heroImg.complete) fitHero(); else heroImg.addEventListener('load', fitHero);
+        window.addEventListener('resize', fitHero);
+    }
 
     // Priests card: edit a row in place, add a new one, and upload a photo as soon as it is chosen.
     var priests = document.getElementById('priests');
@@ -735,6 +1190,16 @@ include __DIR__ . '/includes/header.php';
                 openPriest(row, row.querySelector('button.priest-open'));
             });
         });
+        // Visitors: the whole priest card opens the pop-up (admins keep clicks for editing).
+        if (!document.querySelector('.info-page.can-edit')) {
+            priests.querySelectorAll('.priest-row:not(.is-new)').forEach(function (row) {
+                row.classList.add('is-clickable');
+                row.addEventListener('click', function (ev) {
+                    if (ev.target.closest('[data-priest-open], a, button, input, label')) return;   // those already open it
+                    openPriest(row, row.querySelector('button.priest-open'));
+                });
+            });
+        }
         pm('close').addEventListener('click', closePriest);
         modal.addEventListener('click', function (ev) { if (ev.target === modal) closePriest(); });
         document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && !modal.hidden) closePriest(); });

@@ -23,9 +23,22 @@ $homeNews = catholic_sabah_news(6);   // latest posts of catholicsabah.com (kept
     </section>
 
     <div class="home-body">
-        <h1 class="home-welcome"><?= $homeFirstName !== ''
-            ? 'Welcome, ' . $homeE($homeFirstName) . '!'
-            : '<a href="register.php">Register</a> or <a href="login.php">login</a> to get started' ?></h1>
+        <?php if ($homeFirstName !== ''):
+            $homeHour = (int)date('G');
+            $homeGreet = $homeHour < 12 ? 'Good morning' : ($homeHour < 18 ? 'Good afternoon' : 'Good evening');
+        ?>
+            <section class="home-greet">
+                <div class="home-greet-text">
+                    <span class="home-greet-date">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+                        <?= $homeE(date('l, j F Y')) ?>
+                    </span>
+                    <h1 class="home-welcome"><?= $homeE($homeGreet) ?>, <span><?= $homeE($homeFirstName) ?></span>!</h1>
+                </div>
+            </section>
+        <?php else: ?>
+            <h1 class="home-welcome"><a href="register.php">Register</a> or <a href="login.php">login</a> to get started</h1>
+        <?php endif; ?>
 
         <?php
         // Parishioners get a small "My account" panel on the left of the news; admins and visitors get the news alone.
@@ -100,7 +113,16 @@ $homeNews = catholic_sabah_news(6);   // latest posts of catholicsabah.com (kept
         </script>
         <?php if ($homeAccount !== ''): ?></div><?php endif; ?>
 
-        <p class="home-lead">The Archdiocese at a glance</p>
+        <h2 class="home-lead">The Archdiocese at a glance</h2>
+        <?php
+        // icon for each statistic (by its key); any other statistic gets a chart icon
+        $homeStatIcons = [
+            'population'  => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+            'parishes'    => '<path d="m18 7 4 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9l4-2"/><path d="M14 22v-4a2 2 0 0 0-4 0v4"/><path d="M18 22V5l-6-3-6 3v17"/><path d="M12 7v5"/><path d="M10 9h4"/>',
+            'outstations' => '<path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z"/><path d="M12 7v6"/><path d="M9.5 9.5h5"/>',
+            'priests'     => '<circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/><path d="M11 14.5h2v3h-2Z"/>',
+        ];
+        ?>
 
         <?php if (!empty($_GET['saved'])): ?>
             <div class="alert success home-alert" role="status">Statistics updated.</div>
@@ -112,6 +134,7 @@ $homeNews = catholic_sabah_news(6);   // latest posts of catholicsabah.com (kept
                     <?php if ($homeIsSuper): ?>
                         <a class="home-stat-edit" href="superadmin/statistics.php?focus=<?= $homeE(urlencode($s['stat_key'])) ?>" title="Edit <?= $homeE($s['stat_label']) ?>" aria-label="Edit <?= $homeE($s['stat_label']) ?>"><?= dash_icon('pencil', 15) ?></a>
                     <?php endif; ?>
+                    <span class="home-stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= $homeStatIcons[$s['stat_key']] ?? '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>' ?></svg></span>
                     <span class="home-stat-num" data-count="<?= (int)$s['stat_value'] ?>"><?= number_format((int)$s['stat_value']) ?></span>
                     <span class="home-stat-label"><?= $homeE($s['stat_label']) ?></span>
                 </div>

@@ -80,39 +80,83 @@ $pageTitle = $current ? $current['title'] . ' - ' . $program['title'] : $program
 $activeNav = 'services';
 include __DIR__ . '/includes/header.php';
 ?>
-<main class="sx-page cat-page cat-learn-page">
-    <?php back_button($preview ? 'catechesis-lessons.php?program=' . $programId : 'catechesis.php', $preview ? 'Back to lesson materials' : 'Back to my programs'); ?>
-    <header class="page-heading">
-        <h1><?= e($progName) ?></h1>
-        <p><?= $preview ? 'Student preview &mdash; drafts are shown, and nothing is marked as done' : 'Lesson materials' ?></p>
-    </header>
+<?php
+$nLessons = count($lessons);
+$nDone = count($done);
+$left = $nLessons - $nDone;
+$schedule = cat_schedule_text($program);
+?>
+<main class="cat-lx">
+    <section class="cat-lx-hero">
+        <div class="cat-lx-wrap">
+            <?php back_button($preview ? 'catechesis-lessons.php?program=' . $programId : 'catechesis.php', $preview ? 'Back to lesson materials' : 'Back to my programs'); ?>
+            <div class="cat-lx-hero-row">
+                <div class="cat-lx-hero-text">
+                    <span class="cat-lx-eyebrow">Lesson materials<?= $program['term_label'] ? ' &middot; ' . e($program['term_label']) : '' ?></span>
+                    <h1><?= e($program['title']) ?></h1>
+                    <ul class="cat-lx-chips">
+                        <?php if ($schedule): ?><li><?= cat_icon('calendar', 13) ?> <?= e($schedule) ?></li><?php endif; ?>
+                        <?php if ($program['location']): ?><li><?= cat_icon('pin', 13) ?> <?= e($program['location']) ?></li><?php endif; ?>
+                    </ul>
+                </div>
+                <?php if ($preview): ?>
+                    <div class="cat-lx-progress is-preview">
+                        <span class="cat-lx-ring"><?= cat_icon('eye', 26) ?></span>
+                        <div>
+                            <span class="cat-lx-progress-k">Student preview</span>
+                            <b><?= $nLessons ?> lesson<?= $nLessons === 1 ? '' : 's' ?></b>
+                            <small>Drafts are shown; nothing is marked as done</small>
+                        </div>
+                    </div>
+                <?php elseif ($lessons): ?>
+                    <div class="cat-lx-progress">
+                        <span class="cat-lx-ring" style="--p: <?= $pct ?>" role="progressbar" aria-valuenow="<?= $pct ?>" aria-valuemin="0" aria-valuemax="100" aria-label="Lessons done"><span><?= $pct ?>%</span></span>
+                        <div>
+                            <span class="cat-lx-progress-k">Your progress</span>
+                            <b><?= $nDone ?> of <?= $nLessons ?> lessons done</b>
+                            <small><?= $left ? $left . ' lesson' . ($left === 1 ? '' : 's') . ' to go' : 'All lessons done. Well done!' ?></small>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </section>
 
+    <div class="cat-lx-body">
+    <div class="cat-lx-wrap">
     <?php if ($flash): ?><div class="alert success info-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
 
     <?php if (!$lessons): ?>
         <p class="ann-empty">No lessons have been added to this program yet. Your catechist will post them here.</p>
     <?php else: ?>
-        <div class="cat-learn">
-            <aside class="cat-learn-side" aria-label="Lessons">
-                <div class="cat-learn-prog">
-                    <div class="cat-bar-label"><span><?= count($done) ?> of <?= count($lessons) ?> lessons done</span><span><?= $pct ?>%</span></div>
-                    <div class="cat-bar" role="progressbar" aria-valuenow="<?= $pct ?>" aria-valuemin="0" aria-valuemax="100"><i style="width: <?= $pct ?>%"></i></div>
-                </div>
-                <ol class="cat-learn-list">
+        <div class="cat-lx-grid">
+            <aside class="cat-lx-side" aria-label="Lessons">
+                <div class="cat-lx-side-head"><h2>Lessons</h2><span><?= $nLessons ?> chapter<?= $nLessons === 1 ? '' : 's' ?></span></div>
+                <ol class="cat-lx-list">
                     <?php foreach ($lessons as $i => $l): $lid = (int)$l['lesson_id']; $isDone = isset($done[$lid]); $isCur = $current && (int)$current['lesson_id'] === $lid; ?>
                         <li>
                             <a href="<?= e($self) ?>&amp;lesson=<?= $lid ?>" class="<?= $isCur ? 'is-current' : '' ?><?= $isDone ? ' is-done' : '' ?>"<?= $isCur ? ' aria-current="page"' : '' ?>>
-                                <span class="cat-learn-no"><?= $isDone ? cat_icon('check', 13) : $i + 1 ?></span>
-                                <span class="cat-learn-t"><?= e($l['title']) ?><?php if (!$l['is_published']): ?> <em>(draft)</em><?php endif; ?></span>
+                                <span class="cat-lx-no"><?= $isDone ? cat_icon('check', 14) : $i + 1 ?></span>
+                                <span class="cat-lx-item">
+                                    <small>Lesson <?= $i + 1 ?></small>
+                                    <b><?= e($l['title']) ?><?php if (!$l['is_published']): ?> <em>(draft)</em><?php endif; ?></b>
+                                    <?php if (!$preview): ?><span><?= $isDone ? 'Done &middot; ' . e(date('j M Y', strtotime($done[$lid]))) : ($isCur ? 'In progress' : 'Not started') ?></span><?php endif; ?>
+                                </span>
                             </a>
                         </li>
                     <?php endforeach; ?>
                 </ol>
+                <?php if (!empty($program['notes'])): ?>
+                    <div class="cat-lx-note"><?= cat_icon('pencil', 14) ?><p><?= nl2br(e($program['notes'])) ?></p></div>
+                <?php endif; ?>
             </aside>
 
-            <article class="cat-learn-main" aria-labelledby="lesson-title">
-                <?php $lid = (int)$current['lesson_id']; $embed = cat_video_embed($current['video_url']); $fileLabel = cat_lesson_file_label($current); ?>
-                <span class="cat-pill">Lesson <?= $idx + 1 ?> of <?= count($lessons) ?></span>
+            <article class="cat-lx-main" aria-labelledby="lesson-title">
+                <?php $lid = (int)$current['lesson_id']; $embed = cat_video_embed($current['video_url']); $fileLabel = cat_lesson_file_label($current); $isDoneCur = isset($done[$lid]); ?>
+                <div class="cat-lx-main-head">
+                    <span class="cat-pill">Lesson <?= $idx + 1 ?> of <?= $nLessons ?></span>
+                    <?php if ($isDoneCur): ?><span class="cat-lx-done"><?= cat_icon('check', 14) ?> Done <b><?= e(date('j M Y', strtotime($done[$lid]))) ?></b></span><?php endif; ?>
+                </div>
                 <h2 id="lesson-title"><?= e($current['title']) ?></h2>
                 <?php if ($current['summary']): ?><p class="cat-learn-sum"><?= e($current['summary']) ?></p><?php endif; ?>
 
@@ -124,34 +168,51 @@ include __DIR__ . '/includes/header.php';
 
                 <?php if ($body = cat_lesson_body($current['body'])): ?><div class="cat-learn-body"><?= $body ?></div><?php endif; ?>
 
-                <?php if ($fileLabel): ?>
-                    <a class="cat-learn-file" href="catechesis-lesson-file.php?id=<?= $lid ?>" target="_blank" rel="noopener">
-                        <span><?= cat_icon('file', 20) ?></span>
-                        <span><b><?= e($current['file_name'] ?: 'Lesson handout') ?></b><small><?= e($fileLabel) ?></small></span>
-                        <?= cat_icon('download', 18) ?>
-                    </a>
+                <?php if ($fileLabel): $ext = strtolower(pathinfo((string)$current['file'], PATHINFO_EXTENSION)); $fileUrl = 'catechesis-lesson-file.php?id=' . $lid; ?>
+                    <section class="cat-lx-mats" aria-label="Materials">
+                        <div class="cat-lx-mats-head"><h3>Materials</h3><span>1 file</span></div>
+                        <div class="cat-lx-file">
+                            <span class="cat-lx-file-ico"><?= cat_icon('file', 18) ?><small><?= e(strtoupper($ext)) ?></small></span>
+                            <span class="cat-lx-file-t"><b><?= e($current['file_name'] ?: 'Lesson handout') ?></b><small><?= e($fileLabel) ?></small></span>
+                            <span class="cat-lx-file-acts">
+                                <?php if (!in_array($ext, ['docx', 'pptx'], true)): ?>
+                                    <a class="cat-lx-btn is-soft" href="<?= e($fileUrl) ?>" target="_blank" rel="noopener"><?= cat_icon('eye', 15) ?> View</a>
+                                <?php endif; ?>
+                                <a class="cat-lx-btn is-solid" href="<?= e($fileUrl) ?>&amp;dl=1"><?= cat_icon('download', 15) ?> Download</a>
+                            </span>
+                        </div>
+                    </section>
                 <?php endif; ?>
 
-                <div class="cat-learn-foot">
-                    <?php if ($prev): ?><a class="cat-learn-nav" href="<?= e($self) ?>&amp;lesson=<?= (int)$prev['lesson_id'] ?>"><?= cat_icon('back', 14) ?> Previous</a><?php else: ?><span></span><?php endif; ?>
+                <div class="cat-lx-foot">
+                    <?php if ($prev): ?>
+                        <a class="cat-lx-nav" href="<?= e($self) ?>&amp;lesson=<?= (int)$prev['lesson_id'] ?>"><?= cat_icon('back', 14) ?> Previous</a>
+                    <?php else: ?>
+                        <span class="cat-lx-nav is-disabled" aria-disabled="true"><?= cat_icon('back', 14) ?> Previous</span>
+                    <?php endif; ?>
                     <?php if ($eid): ?>
                         <form method="post" action="<?= e($self) ?>">
                             <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
                             <input type="hidden" name="action" value="done">
                             <input type="hidden" name="program" value="<?= $programId ?>">
                             <input type="hidden" name="lesson" value="<?= $lid ?>">
-                            <?php if (isset($done[$lid])): ?>
-                                <span class="cat-learn-donemark"><?= cat_icon('check', 15) ?> Done <?= e(date('j M Y', strtotime($done[$lid]))) ?></span>
-                                <button type="submit" name="done" value="0" class="cat-learn-undo">Mark as not done</button>
+                            <?php if ($isDoneCur): ?>
+                                <button type="submit" name="done" value="0" class="cat-lx-undo">Mark as not done</button>
                             <?php else: ?>
-                                <button type="submit" name="done" value="1" class="reg-submit"><?= cat_icon('check', 15) ?> Mark as done</button>
+                                <button type="submit" name="done" value="1" class="cat-lx-btn is-solid"><?= cat_icon('check', 15) ?> Mark as done</button>
                             <?php endif; ?>
                         </form>
+                    <?php else: ?><span></span><?php endif; ?>
+                    <?php if ($next): ?>
+                        <a class="cat-lx-nav" href="<?= e($self) ?>&amp;lesson=<?= (int)$next['lesson_id'] ?>">Next lesson <?= cat_icon('arrow', 14) ?></a>
+                    <?php else: ?>
+                        <span class="cat-lx-nav is-disabled" aria-disabled="true">Next lesson <?= cat_icon('arrow', 14) ?></span>
                     <?php endif; ?>
-                    <?php if ($next): ?><a class="cat-learn-nav" href="<?= e($self) ?>&amp;lesson=<?= (int)$next['lesson_id'] ?>">Next <?= cat_icon('arrow', 14) ?></a><?php else: ?><span></span><?php endif; ?>
                 </div>
             </article>
         </div>
     <?php endif; ?>
+    </div>
+    </div>
 </main>
 <?php include __DIR__ . '/includes/footer.php'; ?>

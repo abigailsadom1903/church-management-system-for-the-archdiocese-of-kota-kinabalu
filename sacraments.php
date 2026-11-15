@@ -49,24 +49,41 @@ $pageTitle = 'Sacraments';
 $activeNav = 'services';
 include __DIR__ . '/includes/header.php';
 ?>
-<main class="sx-page">
+<main class="sx-page sx-sacr">
     <?php back_button('index.php#services', 'Back to Services'); ?>
 
-    <header class="page-heading">
-        <h1>Sacraments</h1>
-    </header>
+    <section class="sx-hero<?= $church ? '' : ' no-photo' ?>">
+        <div class="sx-hero-text">
+            <span class="sx-hero-eyebrow">Sacramental life<?= $church ? ' &middot; ' . e($church['church_name']) : '' ?></span>
+            <h1>Sacraments</h1>
+            <p>Apply for a sacrament for yourself or a loved one, send your documents online, and follow your request until it's confirmed.</p>
+            <div class="sx-hero-acts">
+                <a class="sx-hero-btn is-solid" href="#sx-list">Start an application <?= sx_icon('arrow', 15) ?></a>
+                <?php if ($isUser): ?>
+                    <a class="sx-hero-btn is-soft" href="#sx-mine-title">My applications <span class="sx-hero-count"><?= count($mine) ?></span></a>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php if ($church): ?>
+            <figure class="sx-hero-photo">
+                <?php if ($photo): ?>
+                    <img src="<?= e($photo) ?>" alt="<?= e($church['church_name']) ?>">
+                <?php else: ?>
+                    <span class="sx-hero-ph"><?= sx_icon('church', 54) ?></span>
+                <?php endif; ?>
+                <figcaption>
+                    <span class="sx-hero-pin"><?= sx_icon('pin', 16) ?></span>
+                    <span><b><?= e($church['church_name']) ?></b><?php if ($church['church_location']): ?><small><?= e($church['church_location']) ?></small><?php endif; ?></span>
+                </figcaption>
+            </figure>
+        <?php endif; ?>
+    </section>
+
+    <div class="sx-band">
 
     <?php if ($flash): ?><div class="alert success info-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
 
     <?php if ($church): ?>
-        <figure class="sx-church">
-            <?php if ($photo): ?>
-                <img src="<?= e($photo) ?>" alt="<?= e($church['church_name']) ?>">
-            <?php else: ?>
-                <span class="sx-church-ph"><?= sx_icon('church', 46) ?></span>
-            <?php endif; ?>
-            <figcaption><?= e($church['church_name']) ?><small><?= e($church['church_location']) ?></small></figcaption>
-        </figure>
         <?php if ($role === 'super_admin'): ?>
             <form method="get" class="sx-pick" id="sx-pick">
                 <label for="sx-church">Showing</label>
@@ -82,20 +99,24 @@ include __DIR__ . '/includes/header.php';
         <p class="ann-empty">Choose your home parish on <a href="profile.php">your profile</a> so we can show your church here.</p>
     <?php endif; ?>
 
-    <section class="sx-path" aria-labelledby="sx-path-title">
+    <section class="sx-guide" aria-labelledby="sx-path-title">
+        <span class="sx-guide-eyebrow">How it works</span>
         <h2 id="sx-path-title">Guided Application Path</h2>
-        <ol class="sx-steps">
+        <p class="sx-guide-lede">Three simple steps from choosing a sacrament to hearing back from your parish.</p>
+        <ol class="sx-guide-steps">
             <?php foreach ($steps as $i => [$icon, $title, $text]): ?>
                 <li>
-                    <span class="sx-step-ico"><?= sx_icon($icon, 30) ?></span>
+                    <span class="sx-guide-ico"><?= sx_icon($icon, 22) ?></span>
+                    <span class="sx-guide-k">Step <?= $i + 1 ?></span>
                     <h3><?= e($title) ?></h3>
                     <p><?= e($text) ?></p>
+                    <?php if ($i < count($steps) - 1): ?><span class="sx-guide-arrow" aria-hidden="true"><?= sx_icon('right', 16) ?></span><?php endif; ?>
                 </li>
             <?php endforeach; ?>
         </ol>
     </section>
 
-    <section class="sx-list" aria-label="Sacraments">
+    <section class="sx-list" id="sx-list" aria-label="Sacraments">
         <?php foreach (SACRAMENTS as $key => [$name, $icon, $colour, $ready]):
             $isClosed = $ready && in_array($key, $closed, true);
             // A photo in assets/images/sacraments/<key>.jpg replaces the line icon in the circle.
@@ -122,34 +143,78 @@ include __DIR__ . '/includes/header.php';
     </section>
 
     <?php if ($isUser): ?>
+<?php
+        // One row per application, with the label shown (a booked confession counts as "Confirmed"), and the filter tabs.
+        $rows = [];
+        $tabs = [];
+        foreach ($mine as $m) {
+            $d = json_decode((string)$m['details'], true) ?: [];
+            [$stLabel, $stClass] = sx_status($m['status']);
+            if ($m['sacrament'] === 'confession' && $m['status'] === 'submitted') { $stLabel = 'Confirmed'; $stClass = 'is-ok'; }
+            $isSlot = $m['sacrament'] === 'confession' && !empty($d['date']);
+            $rows[] = [$m, $stLabel, $stClass, $isSlot,
+                $isSlot ? date('j M Y', strtotime($d['date'])) . ', ' . sx_time_label((string)($d['time'] ?? '')) : sx_subject($m['sacrament'], $d)];
+            $tabs[$stLabel] = ($tabs[$stLabel] ?? 0) + 1;
+        }
+        ?>
         <section class="sx-mine" aria-labelledby="sx-mine-title">
-            <h2 id="sx-mine-title">My Applications</h2>
-            <?php if (!$mine): ?>
+            <div class="sx-mine-head">
+                <div>
+                    <h2 id="sx-mine-title">My applications</h2>
+                    <p>Track every request you&rsquo;ve sent to the parish.</p>
+                </div>
+                <?php if (count($tabs) > 1): ?>
+                    <div class="sx-tabs" role="group" aria-label="Filter by status">
+                        <button type="button" class="is-on" data-f="" aria-pressed="true">All <span><?= count($rows) ?></span></button>
+                        <?php foreach ($tabs as $label => $n): ?>
+                            <button type="button" data-f="<?= e($label) ?>" aria-pressed="false"><?= e($label) ?> <span><?= $n ?></span></button>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php if (!$rows): ?>
                 <p class="ann-empty">You have not started an application yet. Choose a sacrament above to begin.</p>
             <?php else: ?>
-                <div class="reg-table-wrap">
-                    <table class="reg-table">
+                <div class="sx-apps">
+                    <table class="sx-apps-table">
                         <thead><tr><th>Sacrament</th><th>For</th><th>Status</th><th>Updated</th><th>Action</th></tr></thead>
                         <tbody>
-                        <?php foreach ($mine as $m):
-                            $d = json_decode((string)$m['details'], true) ?: [];
-                            [$stLabel, $stClass] = sx_status($m['status']);
-                            if ($m['sacrament'] === 'confession' && $m['status'] === 'submitted') $stLabel = 'Confirmed';
-                            $name = SACRAMENTS[$m['sacrament']][0] ?? ucfirst($m['sacrament']);
+                        <?php foreach ($rows as [$m, $stLabel, $stClass, $isSlot, $for]):
+                            [$name, $icon, $colour] = SACRAMENTS[$m['sacrament']] ?? [ucfirst($m['sacrament']), 'church', '#5b2d82'];
+                            $img = is_file(__DIR__ . '/assets/images/sacraments/' . $m['sacrament'] . '.jpg') ? 'assets/images/sacraments/' . $m['sacrament'] . '.jpg' : null;
+                            $isDraft = $m['status'] === 'draft';
                         ?>
-                            <tr>
-                                <td data-label="Sacrament"><b><?= e($name) ?></b><small><?= e($m['church_name']) ?></small></td>
-                                <td data-label="For"><?= e($m['sacrament'] === 'confession' && !empty($d['date']) ? date('j M Y', strtotime($d['date'])) . ', ' . sx_time_label((string)($d['time'] ?? '')) : sx_subject($m['sacrament'], $d)) ?: '&mdash;' ?></td>
-                                <td data-label="Status"><span class="sx-badge <?= $stClass ?>"><?= e($stLabel) ?></span></td>
-                                <td data-label="Updated"><?= e(date('j M Y', strtotime($m['updated_at']))) ?></td>
-                                <td data-label="Action"><a class="sx-link" href="<?= $m['status'] === 'draft' ? 'sacrament-apply.php?type=' . e($m['sacrament']) . '&amp;id=' : 'sacrament-status.php?id=' ?><?= (int)$m['application_id'] ?>"><?= $m['status'] === 'draft' ? 'Continue' : 'View' ?></a></td>
+                            <tr data-s="<?= e($stLabel) ?>">
+                                <td data-label="Sacrament">
+                                    <span class="sx-app">
+                                        <span class="sx-app-av" style="--sx: <?= e($colour) ?>"><?= $img ? '<img src="' . e($img) . '" alt="" loading="lazy">' : sx_icon($icon, 18) ?></span>
+                                        <span><b><?= e($name) ?></b><small><?= e($m['church_name']) ?></small></span>
+                                    </span>
+                                </td>
+                                <td data-label="For"><?php if ($for): ?><span class="sx-app-for"><?= sx_icon($isSlot ? 'clock' : 'user', 14) ?> <?= e($for) ?></span><?php else: ?>&mdash;<?php endif; ?></td>
+                                <td data-label="Status"><span class="sx-pill <?= $stClass ?>"><?= e($stLabel) ?></span></td>
+                                <td data-label="Updated" class="sx-app-date"><?= e(date('j M Y', strtotime($m['updated_at']))) ?></td>
+                                <td data-label="Action"><a class="sx-app-btn" href="<?= $isDraft ? 'sacrament-apply.php?type=' . e($m['sacrament']) . '&amp;id=' : 'sacrament-status.php?id=' ?><?= (int)$m['application_id'] ?>"><?= $isDraft ? 'Continue' : 'View' ?> <?= sx_icon('right', 13) ?></a></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
+                <script>
+                (function () {
+                    var tabs = document.querySelectorAll('.sx-tabs button');
+                    tabs.forEach(function (b) {
+                        b.addEventListener('click', function () {
+                            var f = b.getAttribute('data-f');
+                            tabs.forEach(function (t) { var on = t === b; t.classList.toggle('is-on', on); t.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+                            document.querySelectorAll('.sx-apps-table tbody tr').forEach(function (r) { r.hidden = !!f && r.getAttribute('data-s') !== f; });
+                        });
+                    });
+                })();
+                </script>
             <?php endif; ?>
         </section>
     <?php endif; ?>
+    </div>
 </main>
 <?php include __DIR__ . '/includes/footer.php'; ?>

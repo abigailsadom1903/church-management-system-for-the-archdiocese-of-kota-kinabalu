@@ -36,6 +36,15 @@ function sx_render_field(array $fd, array $f, array $errors, array $taken = []):
             $extra = $fd['t'] === 'date' && !empty($fd['past']) ? ' max="' . date('Y-m-d') . '"' : ($fd['t'] === 'date' && !empty($fd['future']) ? ' min="' . date('Y-m-d', strtotime('+1 day')) . '"' : '');
             if ($fd['t'] === 'number') $extra = ' min="' . (int)($fd['min'] ?? 0) . '" max="' . (int)($fd['max'] ?? 999) . '"';
             echo '<input type="' . $type . '" id="' . e($k) . '" name="' . e($k) . '" maxlength="' . (int)($fd['max'] ?? 100) . '"' . $extra . $ph . ' value="' . e($v) . '">';
+            if (!empty($fd['geo'])) {   // "Use my current location": fills the address and keeps the exact spot (assets/js/geo-field.js)
+                $geo = sx_geo_clean((string)($f[$k . '_geo'] ?? ''));
+                echo '<input type="hidden" name="' . e($k) . '_geo" value="' . e($geo) . '" data-geo-for="' . e($k) . '">'
+                   . '<div class="sx-geo" data-geo="' . e($k) . '">'
+                   . '<button type="button" class="sx-geo-btn">' . sx_icon('pin', 14) . ' <span>Use my current location</span></button>'
+                   . '<span class="sx-geo-msg" role="status" aria-live="polite">' . ($geo ? 'Exact location saved. You can still add details like a room or ward number.' : '') . '</span>'
+                   . '<a class="sx-geo-map" target="_blank" rel="noopener"' . ($geo ? ' href="https://www.google.com/maps/search/?api=1&amp;query=' . rawurlencode($geo) . '"' : ' hidden') . '>Check on map</a>'
+                   . '</div>';
+            }
         }
     }
     if (!empty($fd['pick'])) {   // a calendar that greys out what is already taken (the plain input above stays as the fallback)

@@ -67,7 +67,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['form'] = 'Your session expired. Please try again.';
     } else {
         $errors = sx_validate($cfg, $f, $need);
-        // A guardian is needed when the student is under 18.
+        // A guardian is needed when the student is under 18; for an adult student the guardian part is left empty.
+        if ($f['dob'] !== '' && !isset($errors['dob']) && cat_age($f['dob']) >= 18) {
+            foreach (['g_name', 'g_phone', 'g_relationship'] as $k) { $f[$k] = ''; unset($errors[$k]); }
+        }
         if ($need && $f['dob'] !== '' && !isset($errors['dob']) && cat_age($f['dob']) < 18) {
             foreach (['g_name' => 'Enter the guardian\'s name.', 'g_phone' => 'Enter the guardian\'s phone number.', 'g_relationship' => 'Enter the relationship to the student.'] as $k => $msg) {
                 if ($f[$k] === '') $errors[$k] = $msg;
@@ -152,10 +155,15 @@ include __DIR__ . '/includes/header.php';
             <?php if (isset($errors['form'])): ?><div class="alert" role="alert"><?= e($errors['form']) ?></div><?php endif; ?>
             <?php if ($errors && !isset($errors['form'])): ?><div class="alert info-alert" role="alert">Your entries are saved as a draft. Please fix the highlighted items and submit again.</div><?php endif; ?>
 
-            <?php foreach ($cfg['sections'] as $s): ?>
-                <section class="sx-section">
-                    <?php if (!empty($s['title'])): ?><h2><?= e($s['title']) ?></h2><?php endif; ?>
-                    <?php if (!empty($s['note'])): ?><p class="sx-note"><?= e($s['note']) ?></p><?php endif; ?>
+            <?php foreach ($cfg['sections'] as $s):
+                $isGuardian = !empty($s['guardian']);
+                $age = $isGuardian && ($f['dob'] ?? '') !== '' ? cat_age($f['dob']) : null;   // 99 = not a real date
+            ?>
+                <section class="sx-section<?= $isGuardian ? ' cat-guardian' : '' ?>"<?= $isGuardian ? ' data-guardian' : '' ?><?= $isGuardian && ($age === null || $age >= 18) ? ' data-start-hidden' : '' ?>>
+                    <?php if (!empty($s['title'])): ?><h2><?= e($s['title']) ?><?= $isGuardian ? ' <span class="req">*</span>' : '' ?></h2><?php endif; ?>
+                    <?php if ($isGuardian): ?>
+                        <p class="sx-note cat-guardian-note" data-guardian-note><?= $age !== null && $age < 18 ? 'The student is ' . $age . ' years old, so a parent or guardian&rsquo;s details are required.' : e($s['note']) ?></p>
+                    <?php elseif (!empty($s['note'])): ?><p class="sx-note"><?= e($s['note']) ?></p><?php endif; ?>
                     <?php if (!empty($s['fields'])): ?>
                         <div class="sx-grid"><?php foreach ($s['fields'] as $fd) sx_render_field($fd, $f, $errors, $taken); ?></div>
                     <?php endif; ?>
@@ -180,5 +188,30 @@ document.querySelectorAll('.sx-tile input[type=file]').forEach(function (input) 
         if (input.files.length) { text.textContent = input.files[0].name; label.classList.add('has-file'); }
     });
 });
+</script>
+<script>
+// Guardian Information appears by itself when the date of birth makes the student under 18, and hides for adults.
+(function () {
+    var box = document.querySelector('[data-guardian]'), dob = document.getElementById('dob');
+    if (!box || !dob) return;
+    var note = box.querySelector('[data-guardian-note]');
+    function age(v) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+        if (!m) return null;
+        var t = new Date(), a = t.getFullYear() - m[1];
+        if (t.getMonth() + 1 < +m[2] || (t.getMonth() + 1 === +m[2] && t.getDate() < +m[3])) a--;
+        return a >= 0 && a < 130 ? a : null;
+    }
+    function update() {
+        var a = age(dob.value), show = a !== null && a < 18;
+        box.hidden = !show;
+        box.querySelectorAll('input, select, textarea').forEach(function (el) { el.disabled = !show; });   // an adult sends no guardian
+        if (show) note.textContent = 'The student is ' + a + (a === 1 ? ' year' : ' years') + ' old, so a parent or guardian\u2019s details are required.';
+    }
+    if (box.hasAttribute('data-start-hidden') && box.querySelector('.has-error') === null) box.hidden = true;
+    dob.addEventListener('change', update);
+    dob.addEventListener('input', update);
+    update();
+})();
 </script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

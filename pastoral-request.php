@@ -77,7 +77,10 @@ $fieldDefs = sx_fields($cfg);
 $saved = $req ? (json_decode((string)$req['details'], true) ?: []) : [];
 $files = $req ? (json_decode((string)$req['files'], true) ?: []) : [];
 $f = [];
-foreach ($fieldDefs as $k => $fd) $f[$k] = (string)($saved[$k] ?? '');
+foreach ($fieldDefs as $k => $fd) {
+    $f[$k] = (string)($saved[$k] ?? '');
+    if (!empty($fd['geo'])) $f[$k . '_geo'] = (string)($saved[$k . '_geo'] ?? '');   // the detected spot of a place field
+}
 $errors = [];
 $excludeId = $req ? (int)$req['request_id'] : 0;
 $taken = pc_taken($pdo, $service, $churchId, $excludeId);   // counselling times other people already hold
@@ -253,4 +256,5 @@ document.querySelectorAll('.sx-drop input[type=file]').forEach(function (input) 
 });
 </script>
 <?php include __DIR__ . '/includes/date_picker.php'; ?>
+<script src="assets/js/geo-field.js?v=<?= @filemtime(__DIR__ . '/assets/js/geo-field.js') ?: 1 ?>" defer></script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

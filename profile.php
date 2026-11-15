@@ -164,107 +164,196 @@ $photo = $me['user_photo'] && preg_match('/^[\w.-]+$/', $me['user_photo']) && is
     ? 'uploads/profile_photos/' . $me['user_photo'] : null;
 $_SESSION['user_photo'] = $photo ? $me['user_photo'] : null;   // keep the header avatar in step with what is on disk
 
+// ---- My activity (left column): lesson programs, sacrament applications, pastoral requests -----------------
+$myChurchName = '';
+foreach ($parishes as $p) if ((int)$p['church_info_id'] === (int)$me['church_id']) $myChurchName = $p['church_name'];
+
+$activity = [];
+try {
+    // each program I'm enrolled in, with how many of its published lessons I've marked done
+    $st = $pdo->prepare(
+        "SELECT p.program_id, p.title, e.enrolment_id,
+                (SELECT COUNT(*) FROM catechesis_lessons l WHERE l.program_id = p.program_id AND l.is_published = 1) AS lessons,
+                (SELECT COUNT(*) FROM catechesis_lesson_progress lp JOIN catechesis_lessons l2 ON l2.lesson_id = lp.lesson_id
+                  WHERE lp.enrolment_id = e.enrolment_id AND l2.is_published = 1) AS done
+           FROM catechesis_enrolments e JOIN catechesis_programs p ON p.program_id = e.program_id
+          WHERE e.user_id = ? AND e.status IN ('active', 'completed')
+       ORDER BY e.enrolment_id DESC LIMIT 2"
+    );
+    $st->execute([$userId]);
+    foreach ($st as $r) {
+        $n = (int)$r['lessons'];
+        $activity[] = ['book', $r['title'], $n ? round((int)$r['done'] / $n * 100) . '% complete' : 'No lessons posted yet', 'catechesis-learn.php?program=' . (int)$r['program_id']];
+    }
+} catch (PDOException $ex) { /* catechesis tables not set up */ }
+try {
+    $st = $pdo->prepare("SELECT COUNT(*) AS sent,
+                                SUM(status = 'approved' OR (sacrament = 'confession' AND status = 'submitted')) AS ok
+                           FROM sacrament_applications WHERE user_id = ? AND status <> 'draft'");
+    $st->execute([$userId]);
+    $s = $st->fetch();
+    if ((int)$s['sent']) $activity[] = ['drop', 'Sacrament applications', (int)$s['sent'] . ' sent &middot; ' . (int)$s['ok'] . ' confirmed', 'sacraments.php#sx-mine-title'];
+} catch (PDOException $ex) {}
+try {
+    $st = $pdo->prepare("SELECT COUNT(*) AS sent, SUM(status = 'given') AS ok FROM pastoral_requests WHERE user_id = ? AND status <> 'draft'");
+    $st->execute([$userId]);
+    $s = $st->fetch();
+    if ((int)$s['sent']) $activity[] = ['heart', 'Pastoral requests', (int)$s['sent'] . ' sent &middot; ' . (int)$s['ok'] . ' approved', 'pastoral-care.php#pc-mine-title'];
+} catch (PDOException $ex) {}
+
+$pfIco = [
+    'user'  => '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    'mail'  => '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+    'church'=> '<path d="m18 7 4 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9l4-2"/><path d="M14 22v-4a2 2 0 0 0-4 0v4"/><path d="M18 22V5l-6-3-6 3v17"/><path d="M12 7v5"/><path d="M10 9h4"/>',
+    'camera'=> '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+    'upload'=> '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+    'book'  => '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    'drop'  => '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z"/>',
+    'heart' => '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+    'chev'  => '<path d="m9 18 6-6-6-6"/>',
+];
+$pi = fn(string $n, int $s = 16) => '<svg width="' . $s . '" height="' . $s . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $pfIco[$n] . '</svg>';
+
 $pageTitle = 'Profile Information';
 $activeNav = '';
 include __DIR__ . '/includes/header.php';
 
 function pf_class(array $errors, string $key): string { return isset($errors[$key]) ? 'pfield has-error' : 'pfield'; }
 ?>
-<main class="profile-page">
-    <div class="profile-topbar">
-        <?php back_button('index.php', 'Back to Home'); ?>
-        <?php signout_button('signout.php?next=profile.php'); ?>
-    </div>
-    <header class="page-heading profile-heading">
-        <h1>Profile Information</h1>
-        <p>Keep your details up to date so your parish can reach you.</p>
-    </header>
+<main class="pf-page">
+    <section class="pf-hero">
+        <div class="pf-wrap">
+            <div class="pf-topbar">
+                <?php back_button('index.php', 'Back to Home'); ?>
+                <?php signout_button('signout.php?next=profile.php'); ?>
+            </div>
+            <span class="pf-eyebrow">My account</span>
+            <h1>Profile Information</h1>
+            <p>Keep your details up to date so your parish can reach you.</p>
+        </div>
+    </section>
 
-    <?php if ($flash): ?><div class="alert success profile-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
-    <?php if (isset($errors['form'])): ?><div class="alert profile-alert" role="alert"><?= e($errors['form']) ?></div><?php endif; ?>
-    <?php if ($errors && !isset($errors['form'])): ?><div class="alert profile-alert" role="alert">Your changes were not saved. Please check the highlighted fields.</div><?php endif; ?>
+    <div class="pf-wrap pf-body">
+    <?php if ($flash): ?><div class="alert success pf-alert" role="status"><?= e($flash) ?></div><?php endif; ?>
+    <?php if (isset($errors['form'])): ?><div class="alert pf-alert" role="alert"><?= e($errors['form']) ?></div><?php endif; ?>
+    <?php if ($errors && !isset($errors['form'])): ?><div class="alert pf-alert" role="alert">Your changes were not saved. Please check the highlighted fields.</div><?php endif; ?>
     <?php if (!$me['user_verified']): ?>
-        <form method="post" action="profile.php" class="verify-note profile-alert" role="status">
+        <form method="post" action="profile.php" class="verify-note pf-alert" role="status">
             <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
             <span><strong>Your email is not verified yet.</strong> <a href="verify-email.php">Enter the 6-digit code</a> we sent to <?= e($me['user_email']) ?>.</span>
             <button type="submit" name="resend_verification" value="1">Send a new code</button>
         </form>
     <?php endif; ?>
 
-    <form method="post" action="profile.php" enctype="multipart/form-data" class="profile-card" id="profile-form" novalidate>
+    <form method="post" action="profile.php" enctype="multipart/form-data" class="pf-grid" id="profile-form" novalidate>
         <input type="hidden" name="csrf" value="<?= e($_SESSION['csrf']) ?>">
 
-        <div class="profile-photo">
-            <div class="avatar-lg" data-photo-view>
-                <?php if ($photo): ?>
-                    <img src="<?= e($photo) ?>" alt="Your profile photo" id="avatar-img">
-                <?php else: ?>
-                    <svg viewBox="0 0 40 40" aria-hidden="true" id="avatar-default"><circle cx="20" cy="15" r="7.5" fill="#6b6b76"/><path d="M4.5 35c2.6-7 8.4-10 15.500-10s12.900 3 15.500 10A19 19 0 0 1 20 40 19 19 0 0 1 4.500 35z" fill="#6b6b76"/></svg>
-                    <img src="" alt="Your profile photo" id="avatar-img" hidden>
-                <?php endif; ?>
-            </div>
-            <label class="upload-btn">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
-                Upload New Photo
-                <input type="file" name="photo" id="photo-input" accept="image/jpeg,image/png,image/webp" data-adjust="1:1" data-adjust-shape="round" hidden>
-            </label>
-            <?php if ($photo): ?>
-                <button type="submit" name="remove_photo" value="1" class="remove-photo" formnovalidate data-confirm="Remove your profile photo? This cannot be undone.">Remove photo</button>
-            <?php endif; ?>
-            <?php if (isset($errors['photo'])): ?><span class="row-error"><?= e($errors['photo']) ?></span><?php endif; ?>
-        </div>
+        <aside class="pf-side">
+            <section class="pf-card pf-me">
+                <div class="pf-avatar-wrap">
+                    <div class="avatar-lg pf-avatar" data-photo-view>
+                        <?php if ($photo): ?>
+                            <img src="<?= e($photo) ?>" alt="Your profile photo" id="avatar-img">
+                        <?php else: ?>
+                            <svg viewBox="0 0 40 40" aria-hidden="true" id="avatar-default"><circle cx="20" cy="15" r="7.5" fill="#9b8fae"/><path d="M4.5 35c2.6-7 8.4-10 15.500-10s12.900 3 15.500 10A19 19 0 0 1 20 40 19 19 0 0 1 4.500 35z" fill="#9b8fae"/></svg>
+                            <img src="" alt="Your profile photo" id="avatar-img" hidden>
+                        <?php endif; ?>
+                    </div>
+                    <label class="pf-cam" title="Choose a new photo">
+                        <?= $pi('camera', 15) ?><span class="sr-only">Choose a new photo</span>
+                        <input type="file" name="photo" id="photo-input" accept="image/jpeg,image/png,image/webp" data-adjust="1:1" data-adjust-shape="round" hidden>
+                    </label>
+                </div>
+                <h2><?= e($me['user_name']) ?></h2>
+                <p class="pf-role"><?= $pi('church', 13) ?> Parishioner<?= $myChurchName !== '' ? ' &middot; ' . e($myChurchName) : '' ?></p>
+                <div class="pf-photo-acts">
+                    <label class="pf-pill" for="photo-input"><?= $pi('upload', 13) ?> New photo</label>
+                    <?php if ($photo): ?>
+                        <button type="submit" name="remove_photo" value="1" class="pf-pill is-danger" formnovalidate data-confirm="Remove your profile photo? This cannot be undone.">Remove</button>
+                    <?php endif; ?>
+                </div>
+                <?php if (isset($errors['photo'])): ?><span class="row-error"><?= e($errors['photo']) ?></span><?php endif; ?>
+            </section>
 
-        <div class="profile-grid">
-            <div class="profile-col">
-                <div class="<?= pf_class($errors, 'name') ?>">
-                    <label for="name">Full Name</label>
-                    <input type="text" id="name" name="name" maxlength="100" autocomplete="name" value="<?= e($old['name']) ?>" required>
-                    <?php if (isset($errors['name'])): ?><span class="row-error"><?= e($errors['name']) ?></span><?php endif; ?>
-                </div>
-                <div class="<?= pf_class($errors, 'email') ?>">
-                    <label for="email">Email Address</label>
-                    <input type="email" id="email" name="email" maxlength="100" autocomplete="email" value="<?= e($old['email']) ?>" required>
-                    <?php if (isset($errors['email'])): ?><span class="row-error"><?= e($errors['email']) ?></span><?php endif; ?>
-                </div>
-                <div class="<?= pf_class($errors, 'parish') ?>">
-                    <label for="parish">Home Parish</label>
-                    <select id="parish" name="parish" required>
-                        <option value="">Select your primary parish</option>
-                        <?php foreach ($parishes as $p): ?>
-                            <option value="<?= (int)$p['church_info_id'] ?>" <?= $old['parish'] === (string)$p['church_info_id'] ? 'selected' : '' ?>>
-                                <?= e($p['church_name']) ?> &ndash; <?= e($p['church_location']) ?>
-                            </option>
+            <?php if ($activity): ?>
+                <section class="pf-card pf-activity" aria-labelledby="pf-act-title">
+                    <h2 id="pf-act-title" class="pf-k">My activity</h2>
+                    <ul>
+                        <?php foreach ($activity as [$ico, $title, $sub, $href]): ?>
+                            <li><a href="<?= e($href) ?>">
+                                <span class="pf-act-ico"><?= $pi($ico, 15) ?></span>
+                                <span class="pf-act-t"><b><?= e($title) ?></b><small><?= $sub ?></small></span>
+                                <span class="pf-act-go"><?= $pi('chev', 14) ?></span>
+                            </a></li>
                         <?php endforeach; ?>
-                    </select>
-                    <?php if (isset($errors['parish'])): ?><span class="row-error"><?= e($errors['parish']) ?></span><?php endif; ?>
-                </div>
-                <div class="<?= pf_class($errors, 'address') ?>">
-                    <label for="address">Home Address</label>
-                    <textarea id="address" name="address" rows="3" maxlength="255" autocomplete="street-address"><?= e($old['address']) ?></textarea>
-                    <?php if (isset($errors['address'])): ?><span class="row-error"><?= e($errors['address']) ?></span><?php endif; ?>
+                    </ul>
+                </section>
+            <?php endif; ?>
+        </aside>
+
+        <section class="pf-card pf-form">
+            <div class="pf-sec">
+                <h2><span class="pf-sec-ico"><?= $pi('user') ?></span> Personal details</h2>
+                <div class="pf-fields">
+                    <div class="<?= pf_class($errors, 'name') ?>">
+                        <label for="name">Full name</label>
+                        <input type="text" id="name" name="name" maxlength="100" autocomplete="name" value="<?= e($old['name']) ?>" required>
+                        <?php if (isset($errors['name'])): ?><span class="row-error"><?= e($errors['name']) ?></span><?php endif; ?>
+                    </div>
+                    <div class="<?= pf_class($errors, 'dob') ?>">
+                        <label for="dob">Date of birth</label>
+                        <input type="date" id="dob" name="dob" min="1900-01-01" max="<?= date('Y-m-d') ?>" autocomplete="bday" value="<?= e($old['dob']) ?>">
+                        <?php if (isset($errors['dob'])): ?><span class="row-error"><?= e($errors['dob']) ?></span><?php endif; ?>
+                    </div>
                 </div>
             </div>
 
-            <div class="profile-col">
-                <div class="<?= pf_class($errors, 'phone') ?>">
-                    <label for="phone">Phone Number</label>
-                    <input type="tel" id="phone" name="phone" maxlength="20" autocomplete="tel" value="<?= e($old['phone']) ?>" required>
-                    <?php if (isset($errors['phone'])): ?><span class="row-error"><?= e($errors['phone']) ?></span><?php endif; ?>
-                </div>
-                <div class="<?= pf_class($errors, 'dob') ?>">
-                    <label for="dob">Date of Birth</label>
-                    <input type="date" id="dob" name="dob" min="1900-01-01" max="<?= date('Y-m-d') ?>" autocomplete="bday" value="<?= e($old['dob']) ?>">
-                    <?php if (isset($errors['dob'])): ?><span class="row-error"><?= e($errors['dob']) ?></span><?php endif; ?>
+            <div class="pf-sec">
+                <h2><span class="pf-sec-ico"><?= $pi('mail') ?></span> Contact</h2>
+                <div class="pf-fields">
+                    <div class="<?= pf_class($errors, 'phone') ?>">
+                        <label for="phone">Phone number</label>
+                        <input type="tel" id="phone" name="phone" maxlength="20" autocomplete="tel" value="<?= e($old['phone']) ?>" required>
+                        <?php if (isset($errors['phone'])): ?><span class="row-error"><?= e($errors['phone']) ?></span><?php endif; ?>
+                    </div>
+                    <div class="<?= pf_class($errors, 'email') ?>">
+                        <label for="email">Email address</label>
+                        <input type="email" id="email" name="email" maxlength="100" autocomplete="email" value="<?= e($old['email']) ?>" required>
+                        <?php if (isset($errors['email'])): ?><span class="row-error"><?= e($errors['email']) ?></span><?php endif; ?>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="profile-actions">
-            <a href="profile.php" class="btn-cancel">Cancel</a>
-            <button type="submit" class="btn-save">Save Changes</button>
-        </div>
+            <div class="pf-sec">
+                <h2><span class="pf-sec-ico"><?= $pi('church') ?></span> Parish &amp; address</h2>
+                <div class="pf-fields">
+                    <div class="<?= pf_class($errors, 'parish') ?>">
+                        <label for="parish">Home parish</label>
+                        <select id="parish" name="parish" required>
+                            <option value="">Select your primary parish</option>
+                            <?php foreach ($parishes as $p): ?>
+                                <option value="<?= (int)$p['church_info_id'] ?>" <?= $old['parish'] === (string)$p['church_info_id'] ? 'selected' : '' ?>><?= e($p['church_name']) ?> &ndash; <?= e($p['church_location']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="pf-hint">Used to show your parish&rsquo;s Masses, news and services first.</small>
+                        <?php if (isset($errors['parish'])): ?><span class="row-error"><?= e($errors['parish']) ?></span><?php endif; ?>
+                    </div>
+                    <div class="<?= pf_class($errors, 'address') ?>">
+                        <label for="address">Home address</label>
+                        <textarea id="address" name="address" rows="3" maxlength="255" autocomplete="street-address"><?= e($old['address']) ?></textarea>
+                        <?php if (isset($errors['address'])): ?><span class="row-error"><?= e($errors['address']) ?></span><?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pf-foot">
+                <span class="pf-status" id="pf-status"><?= $errors ? 'Please fix the highlighted fields' : 'All details up to date' ?></span>
+                <a href="profile.php" class="pf-btn is-ghost">Cancel</a>
+                <button type="submit" class="pf-btn is-solid">Save changes</button>
+            </div>
+        </section>
     </form>
-
+    </div>
 </main>
 <script>
 (function () {
@@ -285,6 +374,24 @@ function pf_class(array $errors, string $key): string { return isset($errors[$ke
         };
         reader.readAsDataURL(file);
     });
+
+    // The line at the bottom of the form says when something has been changed but not saved yet.
+    var form = document.getElementById('profile-form');
+    var status = document.getElementById('pf-status');
+    var start = new FormData(form);
+    function dirty() {
+        var now = new FormData(form);
+        if (input.files.length) return true;
+        for (var pair of now.entries()) if (typeof pair[1] === 'string' && start.get(pair[0]) !== pair[1]) return true;
+        return false;
+    }
+    function update() {
+        var d = dirty();
+        status.textContent = d ? 'You have unsaved changes' : 'All details up to date';
+        status.classList.toggle('is-dirty', d);
+    }
+    form.addEventListener('input', update);
+    form.addEventListener('change', update);
 })();
 </script>
 <?php include __DIR__ . '/includes/footer.php'; ?>

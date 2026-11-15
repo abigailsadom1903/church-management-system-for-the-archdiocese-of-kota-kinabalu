@@ -59,13 +59,14 @@ include __DIR__ . '/includes/header.php';
             $isNo = $rejected && $n === 4;
         ?>
             <li class="<?= $isNo ? 'is-no' : ($isDone ? 'is-done' : '') ?>"<?= $n === $done || $isNo ? ' aria-current="step"' : '' ?>>
-                <span class="st-dot"><?= $isNo ? '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' : sx_icon('check', 26) ?></span>
+                <span class="st-dot"><?= $isNo ? sx_icon('x', 20) : sx_icon('check', 20) ?></span>
                 <span class="st-label"><?= e($label) ?></span>
             </li>
         <?php endforeach; ?>
     </ol>
     <?php endif; ?>
 
+    <div class="st-grid<?= $app['admin_note'] ? ' has-note' : '' ?>">
     <section class="st-summary" aria-label="Application summary">
         <div class="st-summary-head">
             <h2><?= $isBooking ? 'Booking Summary' : 'Application Summary' ?></h2>
@@ -88,19 +89,26 @@ include __DIR__ . '/includes/header.php';
             <span>Status</span>
             <span class="st-status-pill <?= e($stClass) ?>"><?= e($stLabel) ?></span>
         </div>
-        <?php if ($app['admin_note']): ?><p class="st-note"><b>Note from the church:</b> <?= e($app['admin_note']) ?></p><?php endif; ?>
     </section>
+    <?php if ($app['admin_note']): ?>
+        <aside class="st-note-card <?= e($stClass) ?>" aria-label="Note from the church">
+            <span class="st-note-ico"><?= sx_icon('message', 18) ?></span>
+            <p class="st-note-label">Note from the church</p>
+            <p class="st-note-text"><?= nl2br(e($app['admin_note'])) ?></p>
+        </aside>
+    <?php endif; ?>
+    </div>
 
     <?php if (!$isBooking): ?>
     <details class="st-details">
-        <summary>View what you submitted</summary>
+        <summary><span class="st-details-ico"><?= sx_icon('file', 16) ?></span>View what you submitted<span class="st-details-chev"><?= sx_icon('chevron', 16) ?></span></summary>
         <div class="st-details-body"><?php sx_render_details($cfg, $details, $files, (int)$app['application_id']); ?></div>
     </details>
     <?php endif; ?>
 
     <?php if (!$isBooking && $app['status'] === 'rejected'): ?>
         <div class="st-actions">
-            <a class="reg-submit" href="sacrament-apply.php?type=<?= e($app['sacrament']) ?>&amp;id=<?= (int)$app['application_id'] ?>">Edit &amp; Resubmit</a>
+            <a class="reg-submit st-resubmit" href="sacrament-apply.php?type=<?= e($app['sacrament']) ?>&amp;id=<?= (int)$app['application_id'] ?>"><?= sx_icon('pencil', 15) ?>Edit &amp; Resubmit</a>
         </div>
     <?php endif; ?>
 </main>

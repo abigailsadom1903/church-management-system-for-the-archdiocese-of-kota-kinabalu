@@ -138,6 +138,7 @@ function dash_header(string $pageTitle, string $roleLabel, int $pending, string 
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= $base ?>assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: 1 ?>">
+    <?php require_once __DIR__ . '/theme.php'; theme_head($base); ?>
 </head>
 <body class="dash has-drawer<?= $shell ? ' is-shell' : '' ?>">
 <div class="dash-head">
@@ -151,6 +152,7 @@ function dash_header(string $pageTitle, string $roleLabel, int $pending, string 
             </a>
         </div>
         <div class="dash-user">
+            <?php theme_toggle(); ?>
             <a class="dash-site" href="<?= $base ?>index.php">View site</a>
             <a class="dash-chip" href="<?= $base ?>account.php" aria-label="My profile">
                 <?php if ($avatarPhoto = admin_profile_photo()): ?>

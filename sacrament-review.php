@@ -187,7 +187,7 @@ if ($id) {
                 echo '<section class="rv-card"><h2>' . e($title ?: 'Details') . '</h2><dl>';
                 foreach ($s['fields'] as $fd) {
                     $v = sx_show($fd, (string)($details[$fd['k']] ?? ''));
-                    echo '<dt>' . e($fd['l']) . ':</dt><dd>' . ($v !== '' ? nl2br(e($v)) : '<span class="muted">&mdash;</span>') . '</dd>';
+                    echo '<dt>' . e($fd['l']) . ':</dt><dd>' . ($v !== '' ? nl2br(e($v)) : '<span class="muted">&mdash;</span>') . sx_geo_link($fd, $details) . '</dd>';
                 }
                 echo '</dl></section>';
             }

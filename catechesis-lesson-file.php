@@ -36,8 +36,8 @@ $name = preg_replace('/[^\w .()-]+/', '_', pathinfo((string)$row['file_name'], P
 
 header('Content-Type: ' . ($types[$ext] ?? 'application/octet-stream'));
 header('Content-Length: ' . filesize($path));
-// PDFs, pictures and audio open in the browser; Office files download
-header('Content-Disposition: ' . (in_array($ext, ['docx', 'pptx'], true) ? 'attachment' : 'inline') . '; filename="' . $name . '.' . $ext . '"');
+// PDFs, pictures and audio open in the browser; Office files download (and anything, with ?dl=1)
+header('Content-Disposition: ' . (!empty($_GET['dl']) || in_array($ext, ['docx', 'pptx'], true) ? 'attachment' : 'inline') . '; filename="' . $name . '.' . $ext . '"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
 readfile($path);

@@ -21,7 +21,7 @@ function sx_render_details(array $cfg, array $details, array $files, int $appId,
         $rows = '';
         foreach ($s['fields'] ?? [] as $fd) {
             $v = sx_show($fd, (string)($details[$fd['k']] ?? ''));
-            $valHtml = $v !== '' ? nl2br($h($v)) : '<span class="muted">&mdash;</span>';
+            $valHtml = ($v !== '' ? nl2br($h($v)) : '<span class="muted">&mdash;</span>') . sx_geo_link($fd, $details);
             // A field marked 'nolabel' repeats the section heading as its label, so skip that redundant cell.
             $rows .= empty($fd['nolabel'])
                 ? '<tr><th>' . $h($fd['l']) . '</th><td>' . $valHtml . '</td></tr>'

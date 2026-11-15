@@ -291,7 +291,7 @@ function cat_config(): array
                 $f('address', 'Home Address', 'textarea'), $f('ic', 'IC/Passport No', 'text', true, ['max' => 30]),
                 $f('dob', 'Date of Birth', 'date', true, ['past' => true]),
             ]],
-            ['title' => 'Guardian Information', 'note' => 'Required when the student is under 18.', 'fields' => [
+            ['title' => 'Guardian Information', 'note' => 'Required when the student is under 18.', 'guardian' => true, 'fields' => [
                 $f('g_name', 'Full Name', 'text', false), $f('g_phone', 'Phone Number', 'tel', false),
                 $f('g_relationship', 'Relationship to Student', 'text', false),
             ]],
