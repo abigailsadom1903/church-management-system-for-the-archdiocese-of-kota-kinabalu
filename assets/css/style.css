@@ -1858,13 +1858,8 @@ html { scroll-behavior: smooth; scroll-padding-top: 88px; }
 .auth-link.active { color: var(--purple-dark); }
 .auth-link.active span { text-decoration: underline; text-underline-offset: 6px; }
 
-/* page: soft purple and gold glow behind the two columns */
-body:has(.auth-page) {
-    background:
-        radial-gradient(900px 520px at 12% 8%, rgba(91,45,130,.11), transparent 62%),
-        radial-gradient(760px 520px at 92% 92%, rgba(212,167,44,.14), transparent 60%),
-        var(--bg);
-}
+/* page: plain white behind the two columns (sign in, sign up, forgot / reset password, verify email) */
+body:has(.auth-page) { background: #fff; }
 .auth-page { width: 100%; max-width: 1150px; margin: 0 auto; padding: 56px 48px 72px; gap: 64px; }
 
 /* left: brand */
@@ -5553,5 +5548,5 @@ dd .sx-geo-map, td .sx-geo-map { margin-left: 8px; }
 /* ---- One page background behind every form ----------------------------------------------------------
    The same warm cream as the newer pages (profile, donations, calendar, catechesis) behind: sacrament,
    pastoral and catechesis forms and their status pages, event registration, account settings, the admin
-   add/edit forms, and sign-in / sign-up (whose purple and gold glow now sits on the cream). */
-body:has(main.sx-form-page, main.sx-status-page, main.form-page, main.reg-page, main.profile-page, main.pf-page, main.auth-page) { --bg: #f8f4ec; }
+   add/edit forms. (Sign-in / sign-up pages are plain white: see body:has(.auth-page).) */
+body:has(main.sx-form-page, main.sx-status-page, main.form-page, main.reg-page, main.profile-page, main.pf-page) { --bg: #f8f4ec; }
