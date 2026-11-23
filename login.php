@@ -2,6 +2,7 @@
 session_start();
 require __DIR__ . '/config/db.php';
 require __DIR__ . '/includes/login_gate.php';
+require __DIR__ . '/includes/google_auth.php';
 
 // "?next=events.php" (set by the login-or-register notice): remember it, and go there after signing in.
 if (isset($_GET['next']) && ($n = safe_next($_GET['next']))) {
@@ -19,7 +20,8 @@ if (empty($_SESSION['csrf'])) {
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
 }
 
-$error = '';
+$error = $_SESSION['login_error'] ?? '';   // e.g. a failed Google sign-in (google-login.php)
+unset($_SESSION['login_error']);
 $role  = 'super_admin';
 $email = '';
 
@@ -133,6 +135,7 @@ include __DIR__ . '/includes/header.php';
             </div>
 
             <button type="submit" class="btn-primary">Sign In &rarr;</button>
+            <?php google_button('Continue with Google'); ?>
             <p class="switch-auth divider">New User? <a href="register.php"><strong>Create an Account</strong></a></p>
         </form>
 

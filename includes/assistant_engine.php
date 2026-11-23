@@ -720,10 +720,12 @@ function assistant_reply(PDO $pdo, string $message, int $churchId, array $who): 
                     $add('An account cannot be deleted from the portal by yourself. Please ask the parish office to remove it for you.' . ($church ? $office : ''), [['Privacy', 'privacy.php']]);
                 } elseif (preg_match('/\b(log|sign) ?(out|off)\b|\blogout\b/', $mFixed)) {
                     $add('Use **Sign Out** at the top of the page, or the link below. You will be asked to confirm before you are signed out.', [['Sign out', 'signout.php']]);
+                } elseif (preg_match('/\bgoogle\b/', $mFixed)) {
+                    $add('Yes, you can use **Continue with Google** on the sign-in page. The first time, you will be asked to choose your home parish and agree to the terms; after that Google signs you straight in.', [['Login / Register', 'login.php']]);
                 } elseif (preg_match('/\b(create|sign ?up|new account|no account|don\'?t have|akaun)\b/', $mFixed)) {
-                    $add('New parishioners can create a free account from the **Login / Register** page: just your name, email and a password to get started.', [['Login / Register', 'login.php']]);
+                    $add('New parishioners can create a free account from the **Login / Register** page: just your name, email and a password to get started, or use **Continue with Google**.', [['Login / Register', 'login.php']]);
                 } else {
-                    $add('Sign in from the **Login / Register** page with your email and password. If you have forgotten your password, use **Forgot Password** and we will email you a link.', [['Login / Register', 'login.php'], ['Forgot Password', 'forgot-password.php']]);
+                    $add('Sign in from the **Login / Register** page with your email and password, or with **Continue with Google**. If you have forgotten your password, use **Forgot Password** and we will email you a link.', [['Login / Register', 'login.php'], ['Forgot Password', 'forgot-password.php']]);
                 }
                 break;
         }

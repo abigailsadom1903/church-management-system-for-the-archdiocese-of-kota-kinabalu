@@ -1,6 +1,6 @@
 <?php
 // Emails to a parishioner about their own account and requests: the welcome / verification-code email
-// (register.php, profile.php, verify-email.php) and the result of a sacrament
+// (register.php, google-register.php, profile.php, verify-email.php) and the result of a sacrament
 // application, pastoral request or confession booking (sacrament-review.php, pastoral-manage.php,
 // confession-manage.php).
 
@@ -44,6 +44,16 @@ function send_verification_code(PDO $pdo, int $userId, string $email, string $na
     $html = code_email_html(($welcome ? 'Welcome, ' : 'Hello, ') . $name, $intro, 'Your verification code', $code, $after, $footer);
 
     return send_plain_email($email, $subject, $text, [], $html);
+}
+
+/** Welcome email for an account made with Google (google-register.php): Google already verified the address, so no code. */
+function send_google_welcome_email(string $email, string $name): bool
+{
+    $body = "Hello {$name},\n\n"
+          . "Welcome to the Church Management System of the Archdiocese of Kota Kinabalu. Your account has been created with your Google account.\n\n"
+          . 'Next time, use "Continue with Google" at ' . site_base_url() . "/login.php\n\n"
+          . "If you did not create this account, you can ignore this email.\n\nArchdiocese of Kota Kinabalu\n";
+    return send_plain_email($email, 'Welcome - Archdiocese of Kota Kinabalu', $body);
 }
 
 /**

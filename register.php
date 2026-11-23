@@ -1,6 +1,7 @@
 <?php
 session_start();
 require __DIR__ . '/config/db.php';
+require __DIR__ . '/includes/google_auth.php';
 require __DIR__ . '/includes/user_mail.php';
 
 // Home parish options: every church in the directory.
@@ -163,6 +164,7 @@ include __DIR__ . '/includes/header.php';
             <?php if (isset($errors['terms'])): ?><p class="error-text terms-error"><?= e($errors['terms']) ?></p><?php endif; ?>
 
             <button type="submit" class="btn-primary">Create Account</button>
+            <?php google_button('Sign up with Google'); ?>
             <p class="switch-auth">Already have an account? <a href="login.php"><strong>Sign In</strong></a></p>
         </form>
     </section>

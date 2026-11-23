@@ -117,6 +117,7 @@ CREATE TABLE user (
     user_name     VARCHAR(100) NOT NULL,
     user_email    VARCHAR(100) NOT NULL UNIQUE,
     user_password VARCHAR(255) NOT NULL,
+    google_sub    VARCHAR(64) NULL UNIQUE,           -- Google account id, set when they sign in with Google
     user_phone    VARCHAR(20),
     date_of_birth DATE NULL,
     user_address  VARCHAR(255) NULL,
